@@ -1,4 +1,5 @@
 import Workspace from "../models/Workspace.js";
+import mongoose from "mongoose";
 
 export const createWorkspace = async (req, res) => {
   try {
@@ -46,6 +47,55 @@ export const getMyWorkspaces = async (req, res) => {
     res.status(200).json({
       count: workspaces.length,
       workspaces,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+export const getWorkspaceById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        message: "Invalid workspace ID.",
+      });
+    }
+
+    const workspace = await Workspace.findById(id);
+
+    if (!workspace) {
+      return res.status(404).json({
+        message: "Workspace not found.",
+      });
+    }
+
+    const isMember = workspace.members.some(
+      (memberId) =>
+        memberId.toString() === req.user._id.toString()
+    );
+
+    if (!isMember) {
+      return res.status(403).json({
+        message: "You are not allowed to access this workspace.",
+      });
+    }
+
+    await workspace.populate(
+      "createdBy",
+      "name email avatar status"
+    );
+
+    await workspace.populate(
+      "members",
+      "name email avatar status"
+    );
+
+    res.status(200).json({
+      workspace,
     });
   } catch (error) {
     res.status(500).json({
