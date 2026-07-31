@@ -71,3 +71,49 @@ export const sendMessage = async (req, res) => {
     });
   }
 };
+
+export const getWorkspaceMessages = async (req, res) => {
+  try {
+    const { workspaceId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(workspaceId)) {
+      return res.status(400).json({
+        message: "Invalid workspace ID.",
+      });
+    }
+
+    const workspace = await Workspace.findById(workspaceId);
+
+    if (!workspace) {
+      return res.status(404).json({
+        message: "Workspace not found.",
+      });
+    }
+
+    const isMember = workspace.members.some(
+      (memberId) =>
+        memberId.toString() === req.user._id.toString()
+    );
+
+    if (!isMember) {
+      return res.status(403).json({
+        message: "Only workspace members can view messages.",
+      });
+    }
+
+    const messages = await Message.find({
+      workspace: workspace._id,
+    })
+      .populate("sender", "name email avatar status")
+      .sort({ createdAt: 1 });
+
+    res.status(200).json({
+      count: messages.length,
+      messages,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+};
