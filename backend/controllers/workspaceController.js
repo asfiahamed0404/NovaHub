@@ -157,3 +157,70 @@ export const joinWorkspace = async (req, res) => {
     });
   }
 };
+
+export const leaveWorkspace = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        message: "Invalid workspace ID.",
+      });
+    }
+
+    const workspace = await Workspace.findById(id);
+
+    if (!workspace) {
+      return res.status(404).json({
+        message: "Workspace not found.",
+      });
+    }
+
+    const isMember = workspace.members.some(
+      (memberId) =>
+        memberId.toString() === req.user._id.toString()
+    );
+
+    if (!isMember) {
+      return res.status(403).json({
+        message: "You are not a member of this workspace.",
+      });
+    }
+
+    const isCreator =
+      workspace.createdBy.toString() === req.user._id.toString();
+
+    if (isCreator) {
+      return res.status(400).json({
+        message:
+          "Workspace creator cannot leave the workspace. Transfer ownership or delete the workspace instead.",
+      });
+    }
+
+    workspace.members = workspace.members.filter(
+      (memberId) =>
+        memberId.toString() !== req.user._id.toString()
+    );
+
+    await workspace.save();
+
+    await workspace.populate(
+      "createdBy",
+      "name email avatar status"
+    );
+
+    await workspace.populate(
+      "members",
+      "name email avatar status"
+    );
+
+    res.status(200).json({
+      message: "Left workspace successfully",
+      workspace,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+};
