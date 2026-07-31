@@ -1,0 +1,55 @@
+import Workspace from "../models/Workspace.js";
+
+export const createWorkspace = async (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    if (
+      typeof name !== "string" ||
+      name.trim().length < 2
+    ) {
+      return res.status(400).json({
+        message: "Workspace name must contain at least 2 characters.",
+      });
+    }
+
+    const workspace = await Workspace.create({
+      name: name.trim(),
+      description:
+        typeof description === "string"
+          ? description.trim()
+          : "",
+      createdBy: req.user._id,
+      members: [req.user._id],
+    });
+
+    res.status(201).json({
+      message: "Workspace created successfully",
+      workspace,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+export const getMyWorkspaces = async (req, res) => {
+  try {
+    const workspaces = await Workspace.find({
+      members: req.user._id,
+    })
+      .populate("createdBy", "name email avatar status")
+      .populate("members", "name email avatar status")
+      .sort({ updatedAt: -1 });
+
+    res.status(200).json({
+      count: workspaces.length,
+      workspaces,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: error.message,
+    });
+  }
+};
