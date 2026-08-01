@@ -414,7 +414,7 @@ Socket connected: socketId | User: user@example.com
 ### Status
 
 ```text
-Pending / Passed after manual browser test
+Passed
 ```
 
 ---
@@ -445,7 +445,7 @@ Joined workspace room successfully
 ### Status
 
 ```text
-Pending / Passed after manual browser test
+Passed
 ```
 
 ---
@@ -487,7 +487,7 @@ New message received
 ### Status
 
 ```text
-Pending / Passed after manual browser test
+Passed
 ```
 
 ---
@@ -521,7 +521,7 @@ You are not allowed to join this workspace room.
 ### Status
 
 ```text
-Pending / Passed after manual browser test
+Passed
 ```
 
 ---
@@ -550,7 +550,7 @@ Socket authentication failed.
 ### Status
 
 ```text
-Pending / Passed after manual browser test
+Passed
 ```
 
 ---
@@ -579,7 +579,7 @@ Authentication token is required.
 ### Status
 
 ```text
-Pending / Passed after manual browser test
+Passed
 ```
 
 ---
