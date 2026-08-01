@@ -40,6 +40,8 @@ const startServer = async () => {
     },
   });
 
+  app.set("io", io);
+
   setupSocket(io);
 
   httpServer.listen(PORT, () => {

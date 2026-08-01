@@ -56,15 +56,35 @@ export const sendMessage = async (req, res) => {
       readBy: [req.user._id],
     });
 
+    // await chatMessage.populate(
+    //   "sender",
+    //   "name email avatar status"
+    // );
+
+    // res.status(201).json({
+    //   message: "Message sent successfully",
+    //   chatMessage,
+    // });
+
     await chatMessage.populate(
       "sender",
       "name email avatar status"
     );
 
+    const io = req.app.get("io");
+
+    if (io) {
+      io.to(workspace._id.toString()).emit(
+        "new_message",
+        chatMessage
+      );
+    }
+
     res.status(201).json({
       message: "Message sent successfully",
       chatMessage,
     });
+
   } catch (error) {
     res.status(500).json({
       message: error.message,
