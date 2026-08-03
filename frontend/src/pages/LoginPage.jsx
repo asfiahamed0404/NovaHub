@@ -49,12 +49,17 @@
 // export default LoginPage;
 
 import { useState } from "react";
+import api from "../api/axios.js";
 
 function LoginPage() {
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
+
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (event) => {
     setFormData({
@@ -63,11 +68,34 @@ function LoginPage() {
     });
   };
 
-  const handleSubmit = (event) => {
+  // const handleSubmit = (event) => {
+  //   event.preventDefault();
+
+  //   console.log("Login form submitted:");
+  //   console.log(formData);
+  // };
+
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
-    console.log("Login form submitted:");
-    console.log(formData);
+    try {
+      setError("");
+      setMessage("");
+      setIsSubmitting(true);
+
+      const response = await api.post("/auth/login", formData);
+
+      localStorage.setItem("novahub_token", response.data.token);
+
+      setMessage(response.data.message);
+    } catch (error) {
+      setError(
+        error.response?.data?.message ||
+          "Login failed. Please try again."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -78,6 +106,18 @@ function LoginPage() {
         <p className="mt-2 text-slate-400">
           Login to continue to NovaHub.
         </p>
+
+        {error && (
+          <div className="mt-5 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
+        {message && (
+          <div className="mt-5 rounded-lg border border-green-500/40 bg-green-500/10 px-4 py-3 text-sm text-green-300">
+            {message}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
@@ -108,9 +148,10 @@ function LoginPage() {
 
           <button
             type="submit"
-            className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold hover:bg-blue-500"
+            disabled={isSubmitting}
+            className="w-full rounded-lg bg-blue-600 px-4 py-3 font-semibold hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Login
+            {isSubmitting ? "Logging in..." : "Login"}
           </button>
         </form>
 
