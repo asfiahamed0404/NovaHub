@@ -86,8 +86,11 @@ function LoginPage() {
       const response = await api.post("/auth/login", formData);
 
       localStorage.setItem("novahub_token", response.data.token);
+      const profileResponse = await api.get("/auth/me");
 
-      setMessage(response.data.message);
+          setMessage(
+            `Login successful. Welcome, ${profileResponse.data.user.name}!`
+          );
     } catch (error) {
       setError(
         error.response?.data?.message ||
