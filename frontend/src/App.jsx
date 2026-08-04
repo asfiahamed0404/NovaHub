@@ -35,6 +35,11 @@ function App() {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const handleLogout = () => {
+    localStorage.removeItem("novahub_token");
+    setUser(null);
+  };
+
   useEffect(() => {
     const restoreUser = async () => {
       const token = localStorage.getItem("novahub_token");
@@ -70,7 +75,7 @@ function App() {
   }
 
   if (user) {
-    return <DashboardPage user={user} />;
+    return <DashboardPage user={user} onLogout={handleLogout} />;
   }
 
   return <LoginPage onLoginSuccess={setUser} />;

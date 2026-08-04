@@ -1,8 +1,20 @@
-function DashboardPage({ user }) {
+function DashboardPage({ user, onLogout }) {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <header className="border-b border-slate-800 bg-slate-900 px-6 py-4">
-        <h1 className="text-2xl font-bold">NovaHub</h1>
+        <div className="mx-auto flex max-w-4xl items-center justify-between">
+          <h1 className="text-2xl font-bold">
+            NovaHub
+          </h1>
+
+          <button
+            type="button"
+            onClick={onLogout}
+            className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            Logout
+          </button>
+        </div>
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-10">
