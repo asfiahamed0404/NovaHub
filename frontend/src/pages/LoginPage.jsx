@@ -51,7 +51,7 @@
 import { useState } from "react";
 import api from "../api/axios.js";
 
-function LoginPage() {
+function LoginPage({ onLoginSuccess }) {
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -86,11 +86,11 @@ function LoginPage() {
       const response = await api.post("/auth/login", formData);
 
       localStorage.setItem("novahub_token", response.data.token);
-      const profileResponse = await api.get("/auth/me");
 
-          setMessage(
-            `Login successful. Welcome, ${profileResponse.data.user.name}!`
-          );
+      const profileResponse = await api.get("/auth/me");
+      onLoginSuccess(profileResponse.data.user);
+
+      
     } catch (error) {
       setError(
         error.response?.data?.message ||
