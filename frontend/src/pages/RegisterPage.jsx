@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 
 import api from "../api/axios.js";
 
@@ -124,9 +125,9 @@ function RegisterPage({ onRegisterSuccess }) {
 
         <p className="mt-6 text-center text-sm text-slate-400">
           Already have an account?{" "}
-          <span className="text-blue-400">
+          <Link to="/login" className="text-blue-400 hover:text-blue-300">
             Login
-          </span>
+          </Link>
         </p>
       </div>
     </div>

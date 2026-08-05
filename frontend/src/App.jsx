@@ -26,6 +26,7 @@
 // export default App;
 
 import { useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router";
 
 import api from "./api/axios.js";
 import LoginPage from "./pages/LoginPage.jsx";
@@ -75,12 +76,69 @@ function App() {
     );
   }
 
-  if (user) {
-    return <DashboardPage user={user} onLogout={handleLogout} />;
-  }
+  //if (user) { return <DashboardPage user={user} onLogout={handleLogout} />;}
 
   //return <LoginPage onLoginSuccess={setUser} />;
-  return <RegisterPage onRegisterSuccess={setUser} />;
+  //return <RegisterPage onRegisterSuccess={setUser} />;
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          user ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <LoginPage onLoginSuccess={setUser} />
+          )
+        }
+      />
+
+      <Route
+        path="/register"
+        element={
+          user ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <RegisterPage onRegisterSuccess={setUser} />
+          )
+        }
+      />
+
+      <Route
+        path="/dashboard"
+        element={
+          user ? (
+            <DashboardPage
+              user={user}
+              onLogout={handleLogout}
+            />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      <Route
+        path="/"
+        element={
+          <Navigate
+            to={user ? "/dashboard" : "/login"}
+            replace
+          />
+        }
+      />
+
+      <Route
+        path="*"
+        element={
+          <Navigate
+            to={user ? "/dashboard" : "/login"}
+            replace
+          />
+        }
+      />
+    </Routes>
+  );
 }
 
 export default App;

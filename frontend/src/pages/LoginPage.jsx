@@ -48,6 +48,7 @@
 
 // export default LoginPage;
 
+import { Link } from "react-router";
 import { useState } from "react";
 import api from "../api/axios.js";
 
@@ -160,7 +161,9 @@ function LoginPage({ onLoginSuccess }) {
 
         <p className="mt-6 text-center text-sm text-slate-400">
           New to NovaHub?{" "}
-          <span className="text-blue-400">Create account</span>
+          <Link to="/register" className="text-blue-400 hover:text-blue-300">
+            Create account
+          </Link>
         </p>
       </div>
     </div>
