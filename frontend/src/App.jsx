@@ -30,6 +30,7 @@ import { useEffect, useState } from "react";
 import api from "./api/axios.js";
 import LoginPage from "./pages/LoginPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
+import RegisterPage from "./pages/RegisterPage.jsx";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -78,7 +79,8 @@ function App() {
     return <DashboardPage user={user} onLogout={handleLogout} />;
   }
 
-  return <LoginPage onLoginSuccess={setUser} />;
+  //return <LoginPage onLoginSuccess={setUser} />;
+  return <RegisterPage onRegisterSuccess={setUser} />;
 }
 
 export default App;
