@@ -27,6 +27,7 @@
 
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router";
+import ProtectedRoute from "./routes/ProtectedRoute.jsx";
 
 import api from "./api/axios.js";
 import LoginPage from "./pages/LoginPage.jsx";
@@ -104,7 +105,7 @@ function App() {
         }
       />
 
-      <Route
+      {/* <Route
         path="/dashboard"
         element={
           user ? (
@@ -115,6 +116,14 @@ function App() {
           ) : (
             <Navigate to="/login" replace />
           )
+        }
+      /> */}
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute user={user}>
+            <DashboardPage user={user} onLogout={handleLogout} />
+          </ProtectedRoute>
         }
       />
 
