@@ -39,7 +39,7 @@ function App() {
   //const [user, setUser] = useState(null);
   // const { user, setUser, logout } = useAuth();
   // const [isLoading, setIsLoading] = useState(true);
-  const {user,setUser,isLoading,logout} = useAuth();
+  const {user,setUser,isLoading} = useAuth();
 
   // const handleLogout = () => {
   //   localStorage.removeItem("novahub_token");
@@ -124,8 +124,10 @@ function App() {
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute user={user}>
-            <DashboardPage user={user} onLogout={logout} />
+          <ProtectedRoute>
+          {/*<ProtectedRoute user={user}>*/}
+            {/* <DashboardPage user={user} onLogout={logout} /> */} 
+            <DashboardPage />
           </ProtectedRoute>
         }
       />

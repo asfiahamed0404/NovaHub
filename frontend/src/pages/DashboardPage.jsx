@@ -1,4 +1,8 @@
-function DashboardPage({ user, onLogout }) {
+import { useAuth } from "../context/AuthContext.jsx";
+
+function DashboardPage() {
+  const { user, logout } = useAuth();
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <header className="border-b border-slate-800 bg-slate-900 px-6 py-4">
@@ -9,7 +13,7 @@ function DashboardPage({ user, onLogout }) {
 
           <button
             type="button"
-            onClick={onLogout}
+            onClick={logout}
             className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
           >
             Logout
