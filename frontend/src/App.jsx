@@ -25,47 +25,50 @@
 
 // export default App;
 
-import { useEffect, useState } from "react";
+//import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import ProtectedRoute from "./routes/ProtectedRoute.jsx";
+import { useAuth } from "./context/AuthContext.jsx";
 
-import api from "./api/axios.js";
+//import api from "./api/axios.js";
 import LoginPage from "./pages/LoginPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  //const [user, setUser] = useState(null);
+  // const { user, setUser, logout } = useAuth();
+  // const [isLoading, setIsLoading] = useState(true);
+  const {user,setUser,isLoading,logout} = useAuth();
 
-  const handleLogout = () => {
-    localStorage.removeItem("novahub_token");
-    setUser(null);
-  };
+  // const handleLogout = () => {
+  //   localStorage.removeItem("novahub_token");
+  //   setUser(null);
+  // };
 
-  useEffect(() => {
-    const restoreUser = async () => {
-      const token = localStorage.getItem("novahub_token");
+  // useEffect(() => {
+  //   const restoreUser = async () => {
+  //     const token = localStorage.getItem("novahub_token");
 
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
+  //     if (!token) {
+  //       setIsLoading(false);
+  //       return;
+  //     }
 
-      try {
-        const response = await api.get("/auth/me");
+  //     try {
+  //       const response = await api.get("/auth/me");
 
-        setUser(response.data.user);
-      } catch (error) {
-        localStorage.removeItem("novahub_token");
-        setUser(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  //       setUser(response.data.user);
+  //     } catch (error) {
+  //       localStorage.removeItem("novahub_token");
+  //       setUser(null);
+  //     } finally {
+  //       setIsLoading(false);
+  //     }
+  //   };
 
-    restoreUser();
-  }, []);
+  //   restoreUser();
+  // }, []);
 
   if (isLoading) {
     return (
@@ -122,7 +125,7 @@ function App() {
         path="/dashboard"
         element={
           <ProtectedRoute user={user}>
-            <DashboardPage user={user} onLogout={handleLogout} />
+            <DashboardPage user={user} onLogout={logout} />
           </ProtectedRoute>
         }
       />
