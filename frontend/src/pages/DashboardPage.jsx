@@ -1,7 +1,11 @@
 import { useAuth } from "../context/AuthContext.jsx";
+import WorkspaceList from "../components/WorkspaceList.jsx";
+import CreateWorkspaceForm from "../components/CreateWorkspaceForm.jsx";
+import { useState } from "react";
 
 function DashboardPage() {
   const { user, logout } = useAuth();
+  const [workspaces, setWorkspaces] = useState([]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -41,6 +45,19 @@ function DashboardPage() {
             </p>
           </div>
         </div>
+
+        <CreateWorkspaceForm
+          onWorkspaceCreated={(newWorkspace) => {
+            setWorkspaces((currentWorkspaces) => [
+              ...currentWorkspaces,
+              newWorkspace,
+            ]);
+          }}
+        />
+        <WorkspaceList
+          workspaces={workspaces}
+          setWorkspaces={setWorkspaces}
+        />
       </main>
     </div>
   );
