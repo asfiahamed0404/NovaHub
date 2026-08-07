@@ -34,6 +34,7 @@ import { useAuth } from "./context/AuthContext.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
+import WorkspacePage from "./pages/WorkspacePage.jsx";
 
 function App() {
   //const [user, setUser] = useState(null);
@@ -128,6 +129,15 @@ function App() {
           {/*<ProtectedRoute user={user}>*/}
             {/* <DashboardPage user={user} onLogout={logout} /> */} 
             <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/workspaces/:workspaceId"
+        element={
+          <ProtectedRoute>
+            <WorkspacePage />
           </ProtectedRoute>
         }
       />

@@ -2,6 +2,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import WorkspaceList from "../components/WorkspaceList.jsx";
 import CreateWorkspaceForm from "../components/CreateWorkspaceForm.jsx";
 import { useState } from "react";
+import JoinWorkspaceForm from "../components/JoinWorkspaceForm.jsx";
 
 function DashboardPage() {
   const { user, logout } = useAuth();
@@ -54,6 +55,16 @@ function DashboardPage() {
             ]);
           }}
         />
+
+        <JoinWorkspaceForm
+          onWorkspaceJoined={(joinedWorkspace) => {
+            setWorkspaces((currentWorkspaces) => [
+              ...currentWorkspaces,
+              joinedWorkspace,
+            ]);
+          }}
+        />
+        
         <WorkspaceList
           workspaces={workspaces}
           setWorkspaces={setWorkspaces}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import api from "../api/axios.js";
 
@@ -84,14 +85,23 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
       {!isLoading && !error && (
         <div className="mt-4 space-y-3">
           {workspaces.map((workspace) => (
-            <div
+            // <div
+            //   key={workspace._id}
+            //   className="rounded-xl border border-slate-800 bg-slate-900 p-4"
+            // >
+            //   <h3 className="font-semibold">
+            //     {workspace.name}
+            //   </h3>
+            // </div>
+            <Link
               key={workspace._id}
-              className="rounded-xl border border-slate-800 bg-slate-900 p-4"
+              to={`/workspaces/${workspace._id}`}
+              className="block rounded-xl border border-slate-800 bg-slate-900 p-4 hover:border-slate-700"
             >
               <h3 className="font-semibold">
                 {workspace.name}
               </h3>
-            </div>
+            </Link>
           ))}
         </div>
       )}
