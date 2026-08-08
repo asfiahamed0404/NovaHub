@@ -90,10 +90,10 @@ function WorkspaceMessages({ workspaceId }) {
     };
 
     socket.on("connect", () => {
-      console.log(
-        "Socket connected:",
-        socket.id
-      );
+      // console.log(
+      //   "Socket connected:",
+      //   socket.id
+      // );
 
       socket.emit(
         "join_workspace",
@@ -102,10 +102,10 @@ function WorkspaceMessages({ workspaceId }) {
     });
 
     socket.on("joined_workspace", (data) => {
-      console.log(
-        "Joined workspace room:",
-        data
-      );
+      // console.log(
+      //   "Joined workspace room:",
+      //   data
+      // );
     });
 
     // socket.on("new_message", (newMessage) => {
@@ -148,7 +148,7 @@ function WorkspaceMessages({ workspaceId }) {
         "new_message",
         handleNewMessage
       );
-      
+
       socket.emit(
         "leave_workspace",
         workspaceId
