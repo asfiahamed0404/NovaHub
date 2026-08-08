@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext.jsx";
+import WorkspaceMessages from "../components/WorkspaceMessages.jsx";
 
 import api from "../api/axios.js";
 
@@ -173,6 +174,9 @@ function WorkspacePage() {
             ))}
           </div>
         </div>
+
+        <WorkspaceMessages workspaceId={workspaceId} />
+
       </div>
     </div>
   );
