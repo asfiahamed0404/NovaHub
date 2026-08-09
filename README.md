@@ -89,7 +89,7 @@ Frontend hosted on **Vercel** · Backend hosted on **Railway** · Database hoste
 <div align="center">
 
 <img
-  src="./docs/demo/novahub-demo.gif"
+  src="./docs/demo/novahub-realtime-demo.gif"
   alt="NovaHub real-time collaboration demo"
   width="900"
 />
