@@ -46,16 +46,23 @@
 - Duplicate prevention: Passed
 - Message persistence after refresh: Passed
 
-## Known Issue
+## Real-Time Workspace Membership
 
-Workspace member count and member list do not update in real time
-for users who already have the workspace page open when another user
-joins or leaves.
+- User joins workspace → existing members see updated member count instantly: Passed
+- Joined user appears in member list without refresh: Passed
+- User leaves workspace → existing members see updated member count instantly: Passed
+- Leaving user disappears from member list without refresh: Passed
+- Real-time messaging still works after membership updates: Passed
+- Duplicate message prevention still works: Passed
 
-The database updates correctly and refreshed workspace data is correct.
+## Resolved Issue
 
-Planned follow-up:
-Add Socket.io workspace membership update events.
+Workspace member count and member list now update in real time
+when another user joins or leaves.
+
+This is handled using the Socket.io event:
+
+`workspace_updated`
 
 ## Final Result
 
