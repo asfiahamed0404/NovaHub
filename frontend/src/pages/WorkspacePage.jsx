@@ -2,10 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext.jsx";
 import NovaHubLogo from "../components/NovaHubLogo.jsx";
-import {
-  ArrowLeftIcon,
-  UsersIcon,
-} from "../components/Icons.jsx";
+import {ArrowLeftIcon, UsersIcon,} from "../components/Icons.jsx";
 import ThemeSelector from "../components/ThemeSelector.jsx";
 import WorkspaceMessages from "../components/WorkspaceMessages.jsx";
 

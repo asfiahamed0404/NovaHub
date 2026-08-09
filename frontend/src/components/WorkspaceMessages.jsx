@@ -1,9 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
-import {
-  MessageIcon,
-  SendIcon,
-} from "./Icons.jsx";
+import {MessageIcon,SendIcon,} from "./Icons.jsx";
 import createSocket from "../socket/socket.js";
 
 import api from "../api/axios.js";
@@ -15,10 +12,27 @@ function formatMessageTime(dateString) {
   });
 }
 
-function WorkspaceMessages({
-  workspaceId,
-  onWorkspaceUpdated,
-}) {
+function mergeMessages(currentMessages,incomingMessages) {
+  const messagesById = new Map();
+
+  currentMessages.forEach((message) => {
+    messagesById.set(message._id, message);
+  });
+
+  incomingMessages.forEach((message) => {
+    messagesById.set(message._id, message);
+  });
+
+  return Array.from(
+    messagesById.values()
+  ).sort(
+    (firstMessage, secondMessage) =>
+      new Date(firstMessage.createdAt) -
+      new Date(secondMessage.createdAt)
+  );
+}
+
+function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState([]);
@@ -29,39 +43,125 @@ function WorkspaceMessages({
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState("");
 
+  const [connectionStatus,setConnectionStatus] = useState("connecting");
+
+  const reconnectNoticeTimerRef = useRef(null);
+
   const messageHistoryRef = useRef(null);
-  const hasPositionedInitialHistoryRef =
-    useRef(false);
+  const hasPositionedInitialHistoryRef = useRef(false);
 
-  useEffect(() => {
-    const fetchMessages = async () => {
+  const fetchMessages = useCallback(
+    async ({ merge = false } = {}) => {
       try {
-        setError("");
-        setIsLoading(true);
-
         const response = await api.get(
           `/workspaces/${workspaceId}/messages`
         );
+
+        if (merge) {
+          setMessages((currentMessages) =>
+            mergeMessages(
+              currentMessages,
+              response.data.messages
+            )
+          );
+        }
+
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [workspaceId]
+  );
+
+  useEffect(() => {
+    let ignore = false;
+
+    api
+      .get(
+        `/workspaces/${workspaceId}/messages`
+      )
+      .then((response) => {
+        if (ignore) {
+          return;
+        }
 
         hasPositionedInitialHistoryRef.current =
           false;
 
         setMessages(response.data.messages);
-      } catch (error) {
+      })
+      .catch((error) => {
+        if (ignore) {
+          return;
+        }
+
         setError(
           error.response?.data?.message ||
             "Failed to load messages."
         );
-      } finally {
-        setIsLoading(false);
-      }
-    };
+      })
+      .finally(() => {
+        if (!ignore) {
+          setIsLoading(false);
+        }
+      });
 
-    fetchMessages();
+    return () => {
+      ignore = true;
+    };
   }, [workspaceId]);
 
   useEffect(() => {
     const socket = createSocket();
+
+    let hasConnectedOnce = false;
+    let shouldSyncAfterJoin = false;
+    let syncInProgress = false;
+
+    const clearReconnectNoticeTimer = () => {
+      if (reconnectNoticeTimerRef.current) {
+        clearTimeout(
+          reconnectNoticeTimerRef.current
+        );
+
+        reconnectNoticeTimerRef.current = null;
+      }
+    };
+
+    const showSyncedStatus = () => {
+      clearReconnectNoticeTimer();
+
+      setConnectionStatus("synced");
+
+      reconnectNoticeTimerRef.current =
+        setTimeout(() => {
+          setConnectionStatus("connected");
+        }, 2000);
+    };
+
+    const syncMissedMessages = async () => {
+      if (syncInProgress) {
+        return;
+      }
+
+      syncInProgress = true;
+
+      setConnectionStatus("syncing");
+
+      const wasSuccessful =
+        await fetchMessages({
+          merge: true,
+        });
+
+      if (wasSuccessful) {
+        showSyncedStatus();
+      } else {
+        setConnectionStatus("sync-error");
+      }
+
+      syncInProgress = false;
+    };
 
     const handleNewMessage = (newMessage) => {
       setMessages((currentMessages) => {
@@ -88,20 +188,95 @@ function WorkspaceMessages({
       onWorkspaceUpdated(updatedWorkspace);
     };
 
-    socket.on("connect", () => {
+    const handleConnect = () => {
+      clearReconnectNoticeTimer();
+
+      shouldSyncAfterJoin =
+        hasConnectedOnce;
+
+      hasConnectedOnce = true;
+
+      if (shouldSyncAfterJoin) {
+        setConnectionStatus("syncing");
+      } else {
+        setConnectionStatus("connected");
+      }
 
       socket.emit(
         "join_workspace",
         workspaceId
       );
-    });
+    };
+
+    const handleJoinedWorkspace = () => {
+      if (!shouldSyncAfterJoin) {
+        return;
+      }
+
+      shouldSyncAfterJoin = false;
+
+      syncMissedMessages();
+    };
+
+    const handleDisconnect = () => {
+      clearReconnectNoticeTimer();
+
+      setConnectionStatus(
+        "reconnecting"
+      );
+    };
+
+    const handleConnectError = (error) => {
+      clearReconnectNoticeTimer();
+
+      setConnectionStatus(
+        "reconnecting"
+      );
+
+      console.error(
+        "Socket connection failed:",
+        error.message
+      );
+    };
+
+    const handleSocketError = (data) => {
+      console.error(
+        "Socket error:",
+        data.message
+      );
+    };
+
+    const handleBrowserOffline = () => {
+      clearReconnectNoticeTimer();
+
+      setConnectionStatus(
+        "reconnecting"
+      );
+    };
+
+    const handleBrowserOnline = () => {
+      if (socket.connected) {
+        syncMissedMessages();
+      } else {
+        setConnectionStatus(
+          "reconnecting"
+        );
+      }
+    };
+
+    socket.on(
+      "connect",
+      handleConnect
+    );
+
+    socket.on(
+      "disconnect",
+      handleDisconnect
+    );
 
     socket.on(
       "joined_workspace",
-      (data) => {
-
-        void data;
-      }
+      handleJoinedWorkspace
     );
 
     socket.on(
@@ -114,24 +289,54 @@ function WorkspaceMessages({
       handleWorkspaceUpdated
     );
 
-    socket.on("socket_error", (data) => {
-      console.error(
-        "Socket error:",
-        data.message
-      );
-    });
+    socket.on(
+      "socket_error",
+      handleSocketError
+    );
 
     socket.on(
       "connect_error",
-      (error) => {
-        console.error(
-          "Socket connection failed:",
-          error.message
-        );
-      }
+      handleConnectError
+    );
+
+    window.addEventListener(
+      "offline",
+      handleBrowserOffline
+    );
+
+    window.addEventListener(
+      "online",
+      handleBrowserOnline
     );
 
     return () => {
+      clearReconnectNoticeTimer();
+
+      window.removeEventListener(
+        "offline",
+        handleBrowserOffline
+      );
+
+      window.removeEventListener(
+        "online",
+        handleBrowserOnline
+      );
+
+      socket.off(
+        "connect",
+        handleConnect
+      );
+
+      socket.off(
+        "disconnect",
+        handleDisconnect
+      );
+
+      socket.off(
+        "joined_workspace",
+        handleJoinedWorkspace
+      );
+
       socket.off(
         "new_message",
         handleNewMessage
@@ -142,6 +347,16 @@ function WorkspaceMessages({
         handleWorkspaceUpdated
       );
 
+      socket.off(
+        "socket_error",
+        handleSocketError
+      );
+
+      socket.off(
+        "connect_error",
+        handleConnectError
+      );
+
       socket.emit(
         "leave_workspace",
         workspaceId
@@ -149,10 +364,7 @@ function WorkspaceMessages({
 
       socket.disconnect();
     };
-  }, [
-    workspaceId,
-    onWorkspaceUpdated,
-  ]);
+  }, [workspaceId,onWorkspaceUpdated,fetchMessages,]);
 
   useEffect(() => {
     const messageHistory =
@@ -228,6 +440,10 @@ function WorkspaceMessages({
     }
   };
 
+  const isRealtimeDisconnected =
+  connectionStatus === "connecting" ||
+  connectionStatus === "reconnecting";
+
   return (
     <section
       className="surface-panel flex h-[70dvh] min-h-[30rem] max-h-[42rem] min-w-0 flex-col overflow-hidden"
@@ -256,6 +472,46 @@ function WorkspaceMessages({
           </div>
         </div>
       </header>
+
+      {connectionStatus !== "connected" && (
+        <div
+          className="border-theme surface-subtle shrink-0 border-b px-5 py-2.5 text-sm sm:px-6"
+          role={
+            connectionStatus === "sync-error"
+              ? "alert"
+              : "status"
+          }
+          aria-live="polite"
+        >
+          <p
+            className={
+              connectionStatus === "synced"
+                ? "text-accent"
+                : "text-muted"
+            }
+          >
+            {connectionStatus ===
+              "connecting" &&
+              "Connecting to live updates..."}
+
+            {connectionStatus ===
+              "reconnecting" &&
+              "Connection lost. Reconnecting..."}
+
+            {connectionStatus ===
+              "syncing" &&
+              "Back online. Syncing missed messages..."}
+
+            {connectionStatus ===
+              "synced" &&
+              "Back online. Messages synced."}
+
+            {connectionStatus ===
+              "sync-error" &&
+              "Back online, but missed messages could not be synced. Refresh if anything looks missing."}
+          </p>
+        </div>
+      )}
 
       <div
         ref={messageHistoryRef}
@@ -399,10 +655,17 @@ function WorkspaceMessages({
               setSendError("");
               setContent(event.target.value);
             }}
-            placeholder="Type a message..."
+            placeholder={
+              isRealtimeDisconnected
+                ? "Reconnecting..."
+                : "Type a message..."
+            }
             required
             maxLength={2000}
-            disabled={isSending}
+            disabled={
+              isSending ||
+              isRealtimeDisconnected
+            }
             aria-invalid={Boolean(sendError)}
             aria-describedby={
               sendError
@@ -416,6 +679,7 @@ function WorkspaceMessages({
             type="submit"
             disabled={
               isSending ||
+              isRealtimeDisconnected ||
               content.trim().length === 0
             }
             className="button button-primary w-full shrink-0 sm:w-auto"
