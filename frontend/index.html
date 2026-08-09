@@ -4,7 +4,39 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <meta
+      name="description"
+      content="NovaHub is a focused workspace for real-time team collaboration."
+    />
+    <meta name="theme-color" content="#070b14" />
+    <script>
+      (() => {
+        const storageKey = "novahub_theme";
+        const supportedThemes = ["light", "dark", "system"];
+        let preference = "system";
+
+        try {
+          const storedTheme = window.localStorage.getItem(storageKey);
+
+          if (supportedThemes.includes(storedTheme)) {
+            preference = storedTheme;
+          }
+        } catch {
+          // ThemeContext keeps the preference in memory if storage is unavailable.
+        }
+
+        const resolvedTheme =
+          preference === "system"
+            ? window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference;
+
+        document.documentElement.dataset.theme = resolvedTheme;
+        document.documentElement.style.colorScheme = resolvedTheme;
+      })();
+    </script>
+    <title>NovaHub | Workspace Collaboration</title>
   </head>
   <body>
     <div id="root"></div>
