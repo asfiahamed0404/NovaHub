@@ -1,31 +1,3 @@
-// const setupSocket = (io) => {
-//   io.on("connection", (socket) => {
-//     console.log(`🟢 Socket connected: ${socket.id}`);
-
-//     socket.on("join_workspace", (workspaceId) => {
-//       socket.join(workspaceId);
-
-//       console.log(
-//         `Socket ${socket.id} joined workspace room: ${workspaceId}`
-//       );
-//     });
-
-//     socket.on("leave_workspace", (workspaceId) => {
-//       socket.leave(workspaceId);
-
-//       console.log(
-//         `Socket ${socket.id} left workspace room: ${workspaceId}`
-//       );
-//     });
-
-//     socket.on("disconnect", () => {
-//       console.log(`🔴 Socket disconnected: ${socket.id}`);
-//     });
-//   });
-// };
-
-// export default setupSocket;
-
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 
@@ -38,7 +10,11 @@ const setupSocket = (io) => {
       const token = socket.handshake.auth?.token;
 
       if (!token) {
-        return next(new Error("Authentication token is required."));
+        return next(
+          new Error(
+            "Authentication token is required."
+          )
+        );
       }
 
       const decodedToken = jwt.verify(
@@ -51,83 +27,99 @@ const setupSocket = (io) => {
       ).select("-password");
 
       if (!user) {
-        return next(new Error("User not found."));
+        return next(
+          new Error("User not found.")
+        );
       }
 
       socket.user = user;
 
       next();
     } catch (error) {
-      next(new Error("Socket authentication failed."));
+      next(
+        new Error(
+          "Socket authentication failed."
+        )
+      );
     }
   });
 
   io.on("connection", (socket) => {
-    console.log(
-      `🟢 Socket connected: ${socket.id} | User: ${socket.user.email}`
-    );
+    socket.on(
+      "join_workspace",
+      async (workspaceId) => {
+        try {
+          if (
+            !mongoose.Types.ObjectId.isValid(
+              workspaceId
+            )
+          ) {
+            socket.emit("socket_error", {
+              message:
+                "Invalid workspace ID.",
+            });
 
-    socket.on("join_workspace", async (workspaceId) => {
-      try {
-        if (!mongoose.Types.ObjectId.isValid(workspaceId)) {
-          socket.emit("socket_error", {
-            message: "Invalid workspace ID.",
-          });
+            return;
+          }
 
-          return;
-        }
+          const workspace =
+            await Workspace.findById(
+              workspaceId
+            );
 
-        const workspace = await Workspace.findById(workspaceId);
+          if (!workspace) {
+            socket.emit("socket_error", {
+              message:
+                "Workspace not found.",
+            });
 
-        if (!workspace) {
-          socket.emit("socket_error", {
-            message: "Workspace not found.",
-          });
+            return;
+          }
 
-          return;
-        }
+          const isMember =
+            workspace.members.some(
+              (memberId) =>
+                memberId.toString() ===
+                socket.user._id.toString()
+            );
 
-        const isMember = workspace.members.some(
-          (memberId) =>
-            memberId.toString() === socket.user._id.toString()
-        );
+          if (!isMember) {
+            socket.emit("socket_error", {
+              message:
+                "You are not allowed to join this workspace room.",
+            });
 
-        if (!isMember) {
+            return;
+          }
+
+          socket.join(workspaceId);
+
+          socket.emit(
+            "joined_workspace",
+            {
+              workspaceId,
+              message:
+                "Joined workspace room successfully.",
+            }
+          );
+        } catch (error) {
           socket.emit("socket_error", {
             message:
-              "You are not allowed to join this workspace room.",
+              "Failed to join workspace room.",
           });
-
-          return;
         }
-
-        socket.join(workspaceId);
-
-        console.log(
-          `Socket ${socket.id} joined workspace room: ${workspaceId}`
-        );
-
-        socket.emit("joined_workspace", {
-          workspaceId,
-          message: "Joined workspace room successfully.",
-        });
-      } catch (error) {
-        socket.emit("socket_error", {
-          message: "Failed to join workspace room.",
-        });
       }
-    });
+    );
 
-    socket.on("leave_workspace", (workspaceId) => {
-      socket.leave(workspaceId);
-
-      console.log(
-        `Socket ${socket.id} left workspace room: ${workspaceId}`
-      );
-    });
+    socket.on(
+      "leave_workspace",
+      (workspaceId) => {
+        socket.leave(workspaceId);
+      }
+    );
 
     socket.on("disconnect", () => {
-      console.log(`🔴 Socket disconnected: ${socket.id}`);
+      // No action needed currently.
     });
   });
 };

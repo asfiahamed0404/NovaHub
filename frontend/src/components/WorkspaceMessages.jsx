@@ -60,28 +60,6 @@ function WorkspaceMessages({
     fetchMessages();
   }, [workspaceId]);
 
-  // useEffect(() => {
-  //   const socket = createSocket();
-
-  //   socket.on("connect", () => {
-  //     console.log(
-  //       "Socket connected:",
-  //       socket.id
-  //     );
-  //   });
-
-  //   socket.on("connect_error", (error) => {
-  //     console.error(
-  //       "Socket connection failed:",
-  //       error.message
-  //     );
-  //   });
-
-  //   return () => {
-  //     socket.disconnect();
-  //   };
-  // }, []);
-
   useEffect(() => {
     const socket = createSocket();
 
@@ -111,10 +89,6 @@ function WorkspaceMessages({
     };
 
     socket.on("connect", () => {
-      // console.log(
-      //   "Socket connected:",
-      //   socket.id
-      // );
 
       socket.emit(
         "join_workspace",
@@ -125,31 +99,10 @@ function WorkspaceMessages({
     socket.on(
       "joined_workspace",
       (data) => {
-        // console.log(
-        //   "Joined workspace room:",
-        //   data
-        // );
 
         void data;
       }
     );
-
-    // socket.on("new_message", (newMessage) => {
-    //   setMessages((currentMessages) => {
-    //     const alreadyExists = currentMessages.some(
-    //       (message) => message._id === newMessage._id
-    //     );
-
-    //     if (alreadyExists) {
-    //       return currentMessages;
-    //     }
-
-    //     return [
-    //       ...currentMessages,
-    //       newMessage,
-    //     ];
-    //   });
-    // });
 
     socket.on(
       "new_message",
@@ -243,11 +196,6 @@ function WorkspaceMessages({
           content: content,
         }
       );
-
-      // setMessages((currentMessages) => [
-      //   ...currentMessages,
-      //   response.data.chatMessage,
-      // ]);
 
       setMessages((currentMessages) => {
         const newMessage =

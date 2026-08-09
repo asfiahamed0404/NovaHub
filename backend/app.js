@@ -7,7 +7,22 @@ import messageRoutes from "./routes/messageRoutes.js";
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowedOrigin =
+        process.env.CLIENT_URL;
+
+      if (!origin || origin === allowedOrigin) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error("Not allowed by CORS")
+      );
+    },
+  })
+);
 app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/workspaces", workspaceRoutes);
