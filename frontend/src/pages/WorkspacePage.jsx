@@ -219,7 +219,10 @@ function WorkspacePage() {
         </section>
 
         <div className="mt-6 grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
-          <WorkspaceMessages workspaceId={workspaceId} />
+          <WorkspaceMessages
+            workspaceId={workspaceId}
+            onWorkspaceUpdated={setWorkspace}
+          />
 
           <aside
             className="surface-panel flex min-w-0 flex-col overflow-hidden lg:h-[70dvh] lg:min-h-[30rem] lg:max-h-[42rem]"

@@ -15,7 +15,10 @@ function formatMessageTime(dateString) {
   });
 }
 
-function WorkspaceMessages({ workspaceId }) {
+function WorkspaceMessages({
+  workspaceId,
+  onWorkspaceUpdated,
+}) {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState([]);
@@ -25,8 +28,10 @@ function WorkspaceMessages({ workspaceId }) {
   const [content, setContent] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState("");
+
   const messageHistoryRef = useRef(null);
-  const hasPositionedInitialHistoryRef = useRef(false);
+  const hasPositionedInitialHistoryRef =
+    useRef(false);
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -38,7 +43,9 @@ function WorkspaceMessages({ workspaceId }) {
           `/workspaces/${workspaceId}/messages`
         );
 
-        hasPositionedInitialHistoryRef.current = false;
+        hasPositionedInitialHistoryRef.current =
+          false;
+
         setMessages(response.data.messages);
       } catch (error) {
         setError(
@@ -80,10 +87,11 @@ function WorkspaceMessages({ workspaceId }) {
 
     const handleNewMessage = (newMessage) => {
       setMessages((currentMessages) => {
-        const alreadyExists = currentMessages.some(
-          (message) =>
-            message._id === newMessage._id
-        );
+        const alreadyExists =
+          currentMessages.some(
+            (message) =>
+              message._id === newMessage._id
+          );
 
         if (alreadyExists) {
           return currentMessages;
@@ -94,6 +102,12 @@ function WorkspaceMessages({ workspaceId }) {
           newMessage,
         ];
       });
+    };
+
+    const handleWorkspaceUpdated = (
+      updatedWorkspace
+    ) => {
+      onWorkspaceUpdated(updatedWorkspace);
     };
 
     socket.on("connect", () => {
@@ -108,13 +122,17 @@ function WorkspaceMessages({ workspaceId }) {
       );
     });
 
-    socket.on("joined_workspace", (data) => {
-      // console.log(
-      //   "Joined workspace room:",
-      //   data
-      // );
-      void data;
-    });
+    socket.on(
+      "joined_workspace",
+      (data) => {
+        // console.log(
+        //   "Joined workspace room:",
+        //   data
+        // );
+
+        void data;
+      }
+    );
 
     // socket.on("new_message", (newMessage) => {
     //   setMessages((currentMessages) => {
@@ -132,9 +150,15 @@ function WorkspaceMessages({ workspaceId }) {
     //     ];
     //   });
     // });
+
     socket.on(
       "new_message",
       handleNewMessage
+    );
+
+    socket.on(
+      "workspace_updated",
+      handleWorkspaceUpdated
     );
 
     socket.on("socket_error", (data) => {
@@ -144,17 +168,25 @@ function WorkspaceMessages({ workspaceId }) {
       );
     });
 
-    socket.on("connect_error", (error) => {
-      console.error(
-        "Socket connection failed:",
-        error.message
-      );
-    });
+    socket.on(
+      "connect_error",
+      (error) => {
+        console.error(
+          "Socket connection failed:",
+          error.message
+        );
+      }
+    );
 
     return () => {
       socket.off(
         "new_message",
         handleNewMessage
+      );
+
+      socket.off(
+        "workspace_updated",
+        handleWorkspaceUpdated
       );
 
       socket.emit(
@@ -164,10 +196,14 @@ function WorkspaceMessages({ workspaceId }) {
 
       socket.disconnect();
     };
-  }, [workspaceId]);
+  }, [
+    workspaceId,
+    onWorkspaceUpdated,
+  ]);
 
   useEffect(() => {
-    const messageHistory = messageHistoryRef.current;
+    const messageHistory =
+      messageHistoryRef.current;
 
     if (!messageHistory || isLoading) {
       return;
@@ -175,7 +211,9 @@ function WorkspaceMessages({ workspaceId }) {
 
     const prefersReducedMotion =
       typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches;
 
     const shouldScrollSmoothly =
       hasPositionedInitialHistoryRef.current &&
@@ -183,10 +221,13 @@ function WorkspaceMessages({ workspaceId }) {
 
     messageHistory.scrollTo({
       top: messageHistory.scrollHeight,
-      behavior: shouldScrollSmoothly ? "smooth" : "auto",
+      behavior: shouldScrollSmoothly
+        ? "smooth"
+        : "auto",
     });
 
-    hasPositionedInitialHistoryRef.current = true;
+    hasPositionedInitialHistoryRef.current =
+      true;
   }, [isLoading, messages]);
 
   const handleSendMessage = async (event) => {
@@ -260,6 +301,7 @@ function WorkspaceMessages({ workspaceId }) {
             >
               Conversation
             </h2>
+
             <p className="text-muted text-xs">
               Messages shared with this workspace
             </p>
@@ -283,7 +325,10 @@ function WorkspaceMessages({ workspaceId }) {
             className="text-muted flex h-full min-h-48 items-center justify-center gap-3 text-sm"
             role="status"
           >
-            <span className="spinner" aria-hidden="true" />
+            <span
+              className="spinner"
+              aria-hidden="true"
+            />
             <span>Loading messages...</span>
           </div>
         )}
@@ -307,68 +352,83 @@ function WorkspaceMessages({ workspaceId }) {
               >
                 <MessageIcon className="size-5" />
               </span>
+
               <h3 className="text-heading mt-4 text-sm font-semibold">
                 No messages yet
               </h3>
+
               <p className="text-muted mt-1 max-w-sm text-sm">
-                Start the conversation with your team.
+                Start the conversation with your
+                team.
               </p>
             </div>
           )}
 
-        {!isLoading && !error && messages.length > 0 && (
-          <ol className="space-y-3">
-            {messages.map((message) => {
-              const isOwnMessage = message.sender._id === user.id;
+        {!isLoading &&
+          !error &&
+          messages.length > 0 && (
+            <ol className="space-y-3">
+              {messages.map((message) => {
+                const isOwnMessage =
+                  message.sender._id ===
+                  user.id;
 
-              return (
-                <li
-                  key={message._id}
-                  className={`flex min-w-0 ${
-                    isOwnMessage
-                      ? "justify-end"
-                      : "justify-start"
-                  }`}
-                >
-                  <article
-                    className={`min-w-0 max-w-[88%] rounded-[var(--radius-panel)] px-4 py-3 sm:max-w-[78%] ${
+                return (
+                  <li
+                    key={message._id}
+                    className={`flex min-w-0 ${
                       isOwnMessage
-                        ? "message-own"
-                        : "surface-subtle text-body"
+                        ? "justify-end"
+                        : "justify-start"
                     }`}
                   >
-                    {isOwnMessage ? (
-                      <p className="sr-only">You</p>
-                    ) : (
-                      <p className="text-accent break-words text-xs font-semibold">
-                        {message.sender.name}
-                      </p>
-                    )}
-
-                    <p
-                      className={`whitespace-pre-wrap break-words text-[0.9375rem] leading-6 [overflow-wrap:anywhere] ${
-                        isOwnMessage ? "" : "mt-1"
-                      }`}
-                    >
-                      {message.content}
-                    </p>
-
-                    <time
-                      dateTime={message.createdAt}
-                      className={`mt-2 block text-right text-xs ${
+                    <article
+                      className={`min-w-0 max-w-[88%] rounded-[var(--radius-panel)] px-4 py-3 sm:max-w-[78%] ${
                         isOwnMessage
-                          ? "message-own-meta"
-                          : "text-muted"
+                          ? "message-own"
+                          : "surface-subtle text-body"
                       }`}
                     >
-                      {formatMessageTime(message.createdAt)}
-                    </time>
-                  </article>
-                </li>
-              );
-            })}
-          </ol>
-        )}
+                      {isOwnMessage ? (
+                        <p className="sr-only">
+                          You
+                        </p>
+                      ) : (
+                        <p className="text-accent break-words text-xs font-semibold">
+                          {message.sender.name}
+                        </p>
+                      )}
+
+                      <p
+                        className={`whitespace-pre-wrap break-words text-[0.9375rem] leading-6 [overflow-wrap:anywhere] ${
+                          isOwnMessage
+                            ? ""
+                            : "mt-1"
+                        }`}
+                      >
+                        {message.content}
+                      </p>
+
+                      <time
+                        dateTime={
+                          message.createdAt
+                        }
+                        className={`mt-2 block text-right text-xs ${
+                          isOwnMessage
+                            ? "message-own-meta"
+                            : "text-muted"
+                        }`}
+                      >
+                        {formatMessageTime(
+                          message.createdAt
+                        )}
+                      </time>
+                    </article>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
       </div>
 
       <div className="border-theme composer-surface shrink-0 border-t px-4 py-4 sm:px-6">
@@ -406,16 +466,25 @@ function WorkspaceMessages({ workspaceId }) {
 
           <button
             type="submit"
-            disabled={isSending || content.trim().length === 0}
+            disabled={
+              isSending ||
+              content.trim().length === 0
+            }
             className="button button-primary w-full shrink-0 sm:w-auto"
             aria-busy={isSending}
           >
             {isSending ? (
-              <span className="spinner" aria-hidden="true" />
+              <span
+                className="spinner"
+                aria-hidden="true"
+              />
             ) : (
               <SendIcon className="size-4" />
             )}
-            {isSending ? "Sending..." : "Send"}
+
+            {isSending
+              ? "Sending..."
+              : "Send"}
           </button>
         </form>
 
