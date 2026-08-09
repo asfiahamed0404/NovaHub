@@ -66,13 +66,6 @@ export const sendMessage = async (req, res) => {
     if (io) {
       const roomId = workspace._id.toString();
 
-      const roomSize =
-        io.sockets.adapter.rooms.get(roomId)?.size || 0;
-
-      console.log(
-        `[message-debug] room=${roomId} sockets=${roomSize}`
-      );
-
       io.to(roomId).emit(
         "new_message",
         chatMessage
