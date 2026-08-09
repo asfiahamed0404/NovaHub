@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import api from "../api/axios.js";
+import { UsersIcon } from "./Icons.jsx";
 
 function JoinWorkspaceForm({ onWorkspaceJoined }) {
   const [workspaceId, setWorkspaceId] = useState("");
@@ -33,47 +34,81 @@ function JoinWorkspaceForm({ onWorkspaceJoined }) {
   };
 
   return (
-    <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-5">
-      <h2 className="text-xl font-semibold">
-        Join Workspace
+    <section
+      className="surface-panel p-5 sm:p-6"
+      aria-labelledby="join-workspace-heading"
+    >
+      <span className="accent-tile flex size-9 items-center justify-center rounded-[10px]">
+        <UsersIcon className="size-4" />
+      </span>
+
+      <h2
+        id="join-workspace-heading"
+        className="text-heading mt-4 text-lg font-semibold tracking-[-0.015em]"
+      >
+        Join a workspace
       </h2>
-
-      <p className="mt-2 text-sm text-slate-400">
-        Enter a workspace ID to join.
+      <p className="text-muted mt-2 text-sm leading-6">
+        Connect to an existing team space using its workspace ID.
       </p>
-
-      {error && (
-        <p className="mt-3 text-sm text-red-400">
-          {error}
-        </p>
-      )}
 
       <form
         onSubmit={handleSubmit}
-        className="mt-4 flex gap-3"
+        className="mt-5 space-y-4"
+        aria-busy={isSubmitting}
       >
-        <input
-          type="text"
-          value={workspaceId}
-          onChange={(event) =>
-            setWorkspaceId(event.target.value)
-          }
-          placeholder="Workspace ID"
-          required
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
-        />
+        <div>
+          <label htmlFor="workspace-id" className="form-label">
+            Workspace ID
+          </label>
+          <p id="workspace-id-help" className="text-muted mt-1 text-xs leading-5">
+            Enter a workspace ID shared with you.
+          </p>
+
+          <input
+            id="workspace-id"
+            type="text"
+            value={workspaceId}
+            onChange={(event) => {
+              setError("");
+              setWorkspaceId(event.target.value);
+            }}
+            placeholder="Paste workspace ID"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            aria-describedby={
+              error
+                ? "workspace-id-help join-workspace-error"
+                : "workspace-id-help"
+            }
+            aria-invalid={Boolean(error)}
+            required
+            disabled={isSubmitting}
+            className="form-input mt-2"
+          />
+        </div>
+
+        {error && (
+          <div
+            id="join-workspace-error"
+            className="feedback feedback-error"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
 
         <button
           type="submit"
           disabled={isSubmitting}
-          className="rounded-lg bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+          className="button button-primary w-full"
         >
-          {isSubmitting
-            ? "Joining..."
-            : "Join"}
+          {isSubmitting && <span className="spinner" aria-hidden="true" />}
+          {isSubmitting ? "Joining..." : "Join workspace"}
         </button>
       </form>
-    </div>
+    </section>
   );
 }
 

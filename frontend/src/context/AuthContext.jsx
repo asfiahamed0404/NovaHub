@@ -26,7 +26,7 @@ function AuthProvider({ children }) {
         const response = await api.get("/auth/me");
 
         setUser(response.data.user);
-      } catch (error) {
+      } catch {
         localStorage.removeItem("novahub_token");
         setUser(null);
       } finally {
@@ -68,4 +68,5 @@ function useAuth() {
   return context;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- Keep the provider and hook together in this learning module.
 export { AuthProvider, useAuth };

@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
+import {
+  MessageIcon,
+  SendIcon,
+} from "./Icons.jsx";
 import createSocket from "../socket/socket.js";
 
 import api from "../api/axios.js";
@@ -11,7 +15,10 @@ function formatMessageTime(dateString) {
   });
 }
 
-function WorkspaceMessages({ workspaceId }) {
+function WorkspaceMessages({
+  workspaceId,
+  onWorkspaceUpdated,
+}) {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState([]);
@@ -22,6 +29,10 @@ function WorkspaceMessages({ workspaceId }) {
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState("");
 
+  const messageHistoryRef = useRef(null);
+  const hasPositionedInitialHistoryRef =
+    useRef(false);
+
   useEffect(() => {
     const fetchMessages = async () => {
       try {
@@ -31,6 +42,9 @@ function WorkspaceMessages({ workspaceId }) {
         const response = await api.get(
           `/workspaces/${workspaceId}/messages`
         );
+
+        hasPositionedInitialHistoryRef.current =
+          false;
 
         setMessages(response.data.messages);
       } catch (error) {
@@ -73,10 +87,11 @@ function WorkspaceMessages({ workspaceId }) {
 
     const handleNewMessage = (newMessage) => {
       setMessages((currentMessages) => {
-        const alreadyExists = currentMessages.some(
-          (message) =>
-            message._id === newMessage._id
-        );
+        const alreadyExists =
+          currentMessages.some(
+            (message) =>
+              message._id === newMessage._id
+          );
 
         if (alreadyExists) {
           return currentMessages;
@@ -87,6 +102,12 @@ function WorkspaceMessages({ workspaceId }) {
           newMessage,
         ];
       });
+    };
+
+    const handleWorkspaceUpdated = (
+      updatedWorkspace
+    ) => {
+      onWorkspaceUpdated(updatedWorkspace);
     };
 
     socket.on("connect", () => {
@@ -101,12 +122,17 @@ function WorkspaceMessages({ workspaceId }) {
       );
     });
 
-    socket.on("joined_workspace", (data) => {
-      // console.log(
-      //   "Joined workspace room:",
-      //   data
-      // );
-    });
+    socket.on(
+      "joined_workspace",
+      (data) => {
+        // console.log(
+        //   "Joined workspace room:",
+        //   data
+        // );
+
+        void data;
+      }
+    );
 
     // socket.on("new_message", (newMessage) => {
     //   setMessages((currentMessages) => {
@@ -124,9 +150,15 @@ function WorkspaceMessages({ workspaceId }) {
     //     ];
     //   });
     // });
+
     socket.on(
       "new_message",
       handleNewMessage
+    );
+
+    socket.on(
+      "workspace_updated",
+      handleWorkspaceUpdated
     );
 
     socket.on("socket_error", (data) => {
@@ -136,17 +168,25 @@ function WorkspaceMessages({ workspaceId }) {
       );
     });
 
-    socket.on("connect_error", (error) => {
-      console.error(
-        "Socket connection failed:",
-        error.message
-      );
-    });
+    socket.on(
+      "connect_error",
+      (error) => {
+        console.error(
+          "Socket connection failed:",
+          error.message
+        );
+      }
+    );
 
     return () => {
       socket.off(
         "new_message",
         handleNewMessage
+      );
+
+      socket.off(
+        "workspace_updated",
+        handleWorkspaceUpdated
       );
 
       socket.emit(
@@ -156,7 +196,39 @@ function WorkspaceMessages({ workspaceId }) {
 
       socket.disconnect();
     };
-  }, [workspaceId]);
+  }, [
+    workspaceId,
+    onWorkspaceUpdated,
+  ]);
+
+  useEffect(() => {
+    const messageHistory =
+      messageHistoryRef.current;
+
+    if (!messageHistory || isLoading) {
+      return;
+    }
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches;
+
+    const shouldScrollSmoothly =
+      hasPositionedInitialHistoryRef.current &&
+      !prefersReducedMotion;
+
+    messageHistory.scrollTo({
+      top: messageHistory.scrollHeight,
+      behavior: shouldScrollSmoothly
+        ? "smooth"
+        : "auto",
+    });
+
+    hasPositionedInitialHistoryRef.current =
+      true;
+  }, [isLoading, messages]);
 
   const handleSendMessage = async (event) => {
     event.preventDefault();
@@ -209,115 +281,224 @@ function WorkspaceMessages({ workspaceId }) {
   };
 
   return (
-    <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-5">
-      <h2 className="text-xl font-semibold">
-        Messages
-      </h2>
+    <section
+      className="surface-panel flex h-[70dvh] min-h-[30rem] max-h-[42rem] min-w-0 flex-col overflow-hidden"
+      aria-labelledby="workspace-conversation-heading"
+    >
+      <header className="border-theme shrink-0 border-b px-5 py-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <span
+            className="accent-tile flex size-9 shrink-0 items-center justify-center rounded-[var(--radius-control)]"
+            aria-hidden="true"
+          >
+            <MessageIcon className="size-4" />
+          </span>
 
-      {isLoading && (
-        <p className="mt-3 text-slate-400">
-          Loading messages...
-        </p>
-      )}
+          <div className="min-w-0">
+            <h2
+              id="workspace-conversation-heading"
+              className="text-heading font-semibold"
+            >
+              Conversation
+            </h2>
 
-      {error && (
-        <p className="mt-3 text-sm text-red-400">
-          {error}
-        </p>
-      )}
+            <p className="text-muted text-xs">
+              Messages shared with this workspace
+            </p>
+          </div>
+        </div>
+      </header>
 
-      {!isLoading &&
-        !error &&
-        messages.length === 0 && (
-          <p className="mt-3 text-slate-500">
-            No messages yet.
+      <div
+        ref={messageHistoryRef}
+        id="workspace-message-history"
+        className="scroll-area min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6"
+        role="log"
+        aria-label="Workspace conversation"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-busy={isLoading}
+        tabIndex={0}
+      >
+        {isLoading && (
+          <div
+            className="text-muted flex h-full min-h-48 items-center justify-center gap-3 text-sm"
+            role="status"
+          >
+            <span
+              className="spinner"
+              aria-hidden="true"
+            />
+            <span>Loading messages...</span>
+          </div>
+        )}
+
+        {error && (
+          <p
+            className="feedback feedback-error"
+            role="alert"
+          >
+            {error}
           </p>
         )}
 
-      {!isLoading && !error && messages.length > 0 && (
-        <div className="mt-4 space-y-3">
-          {messages.map((message) => {
-            const isOwnMessage = message.sender._id === user.id;
-
-            return (
-              <div
-                key={message._id}
-                className={`flex ${
-                  isOwnMessage
-                    ? "justify-end"
-                    : "justify-start"
-                }`}
+        {!isLoading &&
+          !error &&
+          messages.length === 0 && (
+            <div className="flex h-full min-h-48 flex-col items-center justify-center px-4 text-center">
+              <span
+                className="accent-tile flex size-11 items-center justify-center rounded-full"
+                aria-hidden="true"
               >
-                <div
-                  className={`max-w-[75%] rounded-xl p-4 ${
-                    isOwnMessage
-                      ? "bg-blue-600"
-                      : "bg-slate-950"
-                  }`}
-                >
-                  {!isOwnMessage && (
-                    <p className="text-sm font-medium text-blue-300">
-                      {message.sender.name}
-                    </p>
-                  )}
+                <MessageIcon className="size-5" />
+              </span>
 
-                  <p
-                    className={
-                      isOwnMessage
-                        ? "text-white"
-                        : "mt-1 text-slate-300"
-                    }
-                  >
-                    {message.content}
-                  </p>
+              <h3 className="text-heading mt-4 text-sm font-semibold">
+                No messages yet
+              </h3>
 
-                  <p
-                    className={`mt-2 text-xs ${
+              <p className="text-muted mt-1 max-w-sm text-sm">
+                Start the conversation with your
+                team.
+              </p>
+            </div>
+          )}
+
+        {!isLoading &&
+          !error &&
+          messages.length > 0 && (
+            <ol className="space-y-3">
+              {messages.map((message) => {
+                const isOwnMessage =
+                  message.sender._id ===
+                  user.id;
+
+                return (
+                  <li
+                    key={message._id}
+                    className={`flex min-w-0 ${
                       isOwnMessage
-                        ? "text-blue-200"
-                        : "text-slate-500"
+                        ? "justify-end"
+                        : "justify-start"
                     }`}
                   >
-                    {formatMessageTime(message.createdAt)}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                    <article
+                      className={`min-w-0 max-w-[88%] rounded-[var(--radius-panel)] px-4 py-3 sm:max-w-[78%] ${
+                        isOwnMessage
+                          ? "message-own"
+                          : "surface-subtle text-body"
+                      }`}
+                    >
+                      {isOwnMessage ? (
+                        <p className="sr-only">
+                          You
+                        </p>
+                      ) : (
+                        <p className="text-accent break-words text-xs font-semibold">
+                          {message.sender.name}
+                        </p>
+                      )}
 
-      <form
-        onSubmit={handleSendMessage}
-        className="mt-5 flex gap-3"
-      >
-        <input
-          type="text"
-          value={content}
-          onChange={(event) =>
-            setContent(event.target.value)
-          }
-          placeholder="Type a message..."
-          required
-          className="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
-        />
+                      <p
+                        className={`whitespace-pre-wrap break-words text-[0.9375rem] leading-6 [overflow-wrap:anywhere] ${
+                          isOwnMessage
+                            ? ""
+                            : "mt-1"
+                        }`}
+                      >
+                        {message.content}
+                      </p>
 
-        <button
-          type="submit"
-          disabled={isSending}
-          className="rounded-lg bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      <time
+                        dateTime={
+                          message.createdAt
+                        }
+                        className={`mt-2 block text-right text-xs ${
+                          isOwnMessage
+                            ? "message-own-meta"
+                            : "text-muted"
+                        }`}
+                      >
+                        {formatMessageTime(
+                          message.createdAt
+                        )}
+                      </time>
+                    </article>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+      </div>
+
+      <div className="border-theme composer-surface shrink-0 border-t px-4 py-4 sm:px-6">
+        <form
+          onSubmit={handleSendMessage}
+          className="flex min-w-0 flex-col gap-3 sm:flex-row"
         >
-          {isSending ? "Sending..." : "Send"}
-        </button>
-      </form>
+          <label
+            htmlFor="workspace-message-input"
+            className="sr-only"
+          >
+            Message
+          </label>
 
-      {sendError && (
-        <p className="mt-3 text-sm text-red-400">
-          {sendError}
-        </p>
-      )}
+          <input
+            id="workspace-message-input"
+            type="text"
+            value={content}
+            onChange={(event) => {
+              setSendError("");
+              setContent(event.target.value);
+            }}
+            placeholder="Type a message..."
+            required
+            maxLength={2000}
+            disabled={isSending}
+            aria-invalid={Boolean(sendError)}
+            aria-describedby={
+              sendError
+                ? "workspace-message-error"
+                : undefined
+            }
+            className="form-input min-w-0 flex-1"
+          />
 
-    </div>
+          <button
+            type="submit"
+            disabled={
+              isSending ||
+              content.trim().length === 0
+            }
+            className="button button-primary w-full shrink-0 sm:w-auto"
+            aria-busy={isSending}
+          >
+            {isSending ? (
+              <span
+                className="spinner"
+                aria-hidden="true"
+              />
+            ) : (
+              <SendIcon className="size-4" />
+            )}
+
+            {isSending
+              ? "Sending..."
+              : "Send"}
+          </button>
+        </form>
+
+        {sendError && (
+          <p
+            id="workspace-message-error"
+            className="feedback feedback-error mt-3"
+            role="alert"
+          >
+            {sendError}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 

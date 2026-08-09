@@ -35,6 +35,7 @@ import LoginPage from "./pages/LoginPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 import WorkspacePage from "./pages/WorkspacePage.jsx";
+import NovaHubLogo from "./components/NovaHubLogo.jsx";
 
 function App() {
   //const [user, setUser] = useState(null);
@@ -73,11 +74,23 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
-        <p className="text-slate-300">
-          Loading NovaHub...
-        </p>
-      </div>
+      <main
+        className="app-shell flex items-center justify-center px-4"
+        aria-busy="true"
+      >
+        <div className="page-enter flex flex-col items-center text-center">
+          <NovaHubLogo showTagline />
+
+          <div
+            className="text-muted mt-8 flex items-center gap-3 text-sm"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="spinner text-accent" aria-hidden="true" />
+            <span>Restoring your NovaHub session...</span>
+          </div>
+        </div>
+      </main>
     );
   }
 

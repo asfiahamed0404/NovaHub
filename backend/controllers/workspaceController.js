@@ -147,6 +147,13 @@ export const joinWorkspace = async (req, res) => {
       "name email avatar status"
     );
 
+    const io = req.app.get("io");
+
+    io.to(id).emit(
+      "workspace_updated",
+      workspace
+    );
+
     res.status(200).json({
       message: "Joined workspace successfully",
       workspace,
@@ -212,6 +219,13 @@ export const leaveWorkspace = async (req, res) => {
     await workspace.populate(
       "members",
       "name email avatar status"
+    );
+
+    const io = req.app.get("io");
+
+    io.to(id).emit(
+      "workspace_updated",
+      workspace
     );
 
     res.status(200).json({
