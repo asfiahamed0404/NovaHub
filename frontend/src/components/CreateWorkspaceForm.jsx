@@ -6,12 +6,7 @@ function CreateWorkspaceForm({ onWorkspaceCreated }) {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // const handleSubmit = (event) => {
-  //   event.preventDefault();
-
-  //   console.log("Workspace name:", name);
-  // };
+  
   const handleSubmit = async (event) => {
     event.preventDefault();
 

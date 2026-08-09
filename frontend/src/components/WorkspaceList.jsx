@@ -5,25 +5,6 @@ import api from "../api/axios.js";
 import { ArrowRightIcon, UsersIcon } from "./Icons.jsx";
 
 function WorkspaceList({workspaces,setWorkspaces,}) {
-
-  // useEffect(() => {
-  //   const fetchWorkspaces = async () => {
-  //     try {
-  //       const response = await api.get("/workspaces");
-
-  //       //console.log("Workspace response:", response.data);
-  //       setWorkspaces(response.data.workspaces);
-  //     } catch (error) {
-  //       console.error(
-  //         "Failed to fetch workspaces:",
-  //         error.response?.data || error.message
-  //       );
-  //     }
-  //   };
-
-  //   fetchWorkspaces();
-  // }, []);
-
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -121,14 +102,6 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
       {!isLoading && !error && workspaces.length > 0 && (
         <ul className="mt-6 grid gap-3 md:grid-cols-2">
           {workspaces.map((workspace) => (
-            // <div
-            //   key={workspace._id}
-            //   className="rounded-xl border border-slate-800 bg-slate-900 p-4"
-            // >
-            //   <h3 className="font-semibold">
-            //     {workspace.name}
-            //   </h3>
-            // </div>
             <li key={workspace._id} className="min-w-0">
               <Link
                 to={`/workspaces/${workspace._id}`}

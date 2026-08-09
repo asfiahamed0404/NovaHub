@@ -28,11 +28,6 @@ export const registerUser = async (req, res) => {
 
     await user.save();
 
-    /*res.status(201).json({
-      message: "User registered successfully",
-      user,
-    });*/
-
     res.status(201).json({
       message: "User registered successfully",
       token: generateToken(user._id),
@@ -73,11 +68,6 @@ export const loginUser = async (req, res) => {
         message: "Invalid email or password",
       });
     }
-
-    /*res.status(200).json({
-      message: "Login successful",
-      user,
-    });*/
 
     res.status(200).json({
       message: "Login successful",

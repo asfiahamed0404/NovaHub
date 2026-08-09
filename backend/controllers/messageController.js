@@ -56,16 +56,6 @@ export const sendMessage = async (req, res) => {
       readBy: [req.user._id],
     });
 
-    // await chatMessage.populate(
-    //   "sender",
-    //   "name email avatar status"
-    // );
-
-    // res.status(201).json({
-    //   message: "Message sent successfully",
-    //   chatMessage,
-    // });
-
     await chatMessage.populate(
       "sender",
       "name email avatar status"
