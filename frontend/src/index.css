@@ -171,6 +171,11 @@ a {
   backdrop-filter: blur(14px);
 }
 
+.invite-dialog-backdrop {
+  background: rgb(2 6 23 / 76%);
+  backdrop-filter: blur(4px);
+}
+
 .surface-panel {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
@@ -232,6 +237,30 @@ a {
   border: 1px solid var(--color-border);
   background: var(--color-surface-soft);
   color: var(--color-foreground-soft);
+}
+
+.invitation-status {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
+  color: var(--color-foreground-soft);
+}
+
+.invitation-status-active {
+  border-color: var(--color-success-border);
+  background: var(--color-success-surface);
+  color: var(--color-success-foreground);
+}
+
+.invitation-status-used {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.invitation-status-revoked {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-surface);
+  color: var(--color-danger-foreground);
 }
 
 .brand-mark {

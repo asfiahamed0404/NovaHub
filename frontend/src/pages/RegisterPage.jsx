@@ -1,10 +1,14 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import AuthLayout from "../components/AuthLayout.jsx";
 import api from "../api/axios.js";
+import { getSafeInvitationReturnPath } from "../utils/invitationPath.js";
 
 function RegisterPage({ onRegisterSuccess }) {
+  const location = useLocation();
+  const invitationReturnPath =
+    getSafeInvitationReturnPath(location.state);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -47,12 +51,21 @@ function RegisterPage({ onRegisterSuccess }) {
   return (
     <AuthLayout
       title="Create your account"
-      description="Set up your profile and start collaborating in a focused workspace."
+      description={
+        invitationReturnPath
+          ? "Create an account to review and accept your workspace invitation."
+          : "Set up your profile and start collaborating in a focused workspace."
+      }
       footer={
         <p>
           Already have an account?{" "}
           <Link
             to="/login"
+            state={
+              invitationReturnPath
+                ? { from: invitationReturnPath }
+                : undefined
+            }
             className="auth-link rounded-sm font-semibold"
           >
             Log in
@@ -65,6 +78,12 @@ function RegisterPage({ onRegisterSuccess }) {
         className="mt-6 space-y-5"
         aria-busy={isSubmitting}
       >
+        {invitationReturnPath && (
+          <div className="feedback feedback-success" role="status">
+            Your invitation is ready. Create your account to continue.
+          </div>
+        )}
+
         {error && (
           <div id="register-error" className="feedback feedback-error" role="alert">
             {error}

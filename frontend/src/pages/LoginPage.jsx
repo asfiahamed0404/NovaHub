@@ -1,10 +1,14 @@
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { useState } from "react";
 
 import AuthLayout from "../components/AuthLayout.jsx";
 import api from "../api/axios.js";
+import { getSafeInvitationReturnPath } from "../utils/invitationPath.js";
 
 function LoginPage({ onLoginSuccess }) {
+  const location = useLocation();
+  const invitationReturnPath =
+    getSafeInvitationReturnPath(location.state);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -52,12 +56,21 @@ function LoginPage({ onLoginSuccess }) {
   return (
     <AuthLayout
       title="Welcome back"
-      description="Sign in to return to your workspaces and team conversations."
+      description={
+        invitationReturnPath
+          ? "Sign in to review and accept your workspace invitation."
+          : "Sign in to return to your workspaces and team conversations."
+      }
       footer={
         <p>
           New to NovaHub?{" "}
           <Link
             to="/register"
+            state={
+              invitationReturnPath
+                ? { from: invitationReturnPath }
+                : undefined
+            }
             className="auth-link rounded-sm font-semibold"
           >
             Create an account
@@ -70,6 +83,12 @@ function LoginPage({ onLoginSuccess }) {
         className="mt-6 space-y-5"
         aria-busy={isSubmitting}
       >
+        {invitationReturnPath && (
+          <div className="feedback feedback-success" role="status">
+            Your invitation is ready. Sign in to continue securely.
+          </div>
+        )}
+
         {error && (
           <div id="login-error" className="feedback feedback-error" role="alert">
             {error}

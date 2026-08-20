@@ -81,6 +81,43 @@ function PlusIcon({ className }) {
   );
 }
 
+function InviteIcon({ className }) {
+  return (
+    <IconFrame className={className}>
+      <path d="M15 19a6 6 0 0 0-12 0" />
+      <circle cx="9" cy="8" r="4" />
+      <path d="M19 8v6" />
+      <path d="M16 11h6" />
+    </IconFrame>
+  );
+}
+
+function CopyIcon({ className }) {
+  return (
+    <IconFrame className={className}>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </IconFrame>
+  );
+}
+
+function CheckIcon({ className }) {
+  return (
+    <IconFrame className={className}>
+      <path d="m5 12 4 4L19 6" />
+    </IconFrame>
+  );
+}
+
+function CloseIcon({ className }) {
+  return (
+    <IconFrame className={className}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </IconFrame>
+  );
+}
+
 function SunIcon({ className }) {
   return (
     <IconFrame className={className}>
@@ -118,6 +155,10 @@ function MonitorIcon({ className }) {
 export {
   ArrowLeftIcon,
   ArrowRightIcon,
+  CheckIcon,
+  CloseIcon,
+  CopyIcon,
+  InviteIcon,
   LogoutIcon,
   MessageIcon,
   MonitorIcon,

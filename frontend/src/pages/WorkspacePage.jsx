@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext.jsx";
 import NovaHubLogo from "../components/NovaHubLogo.jsx";
-import {ArrowLeftIcon, UsersIcon,} from "../components/Icons.jsx";
+import {
+  ArrowLeftIcon,
+  InviteIcon,
+  UsersIcon,
+} from "../components/Icons.jsx";
+import InviteWorkspaceDialog from "../components/InviteWorkspaceDialog.jsx";
 import ThemeSelector from "../components/ThemeSelector.jsx";
 import WorkspaceMessages from "../components/WorkspaceMessages.jsx";
 
@@ -45,6 +50,12 @@ function WorkspacePage() {
 
   const [isLeaving, setIsLeaving] = useState(false);
   const [leaveError, setLeaveError] = useState("");
+  const [isInviteDialogOpen, setIsInviteDialogOpen] =
+    useState(false);
+
+  const closeInviteDialog = useCallback(() => {
+    setIsInviteDialogOpen(false);
+  }, []);
 
   useEffect(() => {
     const fetchWorkspace = async () => {
@@ -187,22 +198,34 @@ function WorkspacePage() {
               </dl>
             </div>
 
-            {!isCreator && (
+            <div className="flex shrink-0 flex-wrap gap-2 self-start">
               <button
                 type="button"
-                onClick={handleLeaveWorkspace}
-                disabled={isLeaving}
-                className="button button-danger shrink-0 self-start"
-                aria-busy={isLeaving}
+                onClick={() => setIsInviteDialogOpen(true)}
+                className="button button-primary shrink-0"
+                aria-haspopup="dialog"
               >
-                {isLeaving && (
-                  <span className="spinner" aria-hidden="true" />
-                )}
-                {isLeaving
-                  ? "Leaving..."
-                  : "Leave Workspace"}
+                <InviteIcon className="size-4" />
+                Invite
               </button>
-            )}
+
+              {!isCreator && (
+                <button
+                  type="button"
+                  onClick={handleLeaveWorkspace}
+                  disabled={isLeaving}
+                  className="button button-danger shrink-0"
+                  aria-busy={isLeaving}
+                >
+                  {isLeaving && (
+                    <span className="spinner" aria-hidden="true" />
+                  )}
+                  {isLeaving
+                    ? "Leaving..."
+                    : "Leave Workspace"}
+                </button>
+              )}
+            </div>
           </div>
 
           {leaveError && (
@@ -276,6 +299,14 @@ function WorkspacePage() {
           </aside>
         </div>
       </main>
+
+      {isInviteDialogOpen && (
+        <InviteWorkspaceDialog
+          workspaceId={workspaceId}
+          workspaceName={workspace.name}
+          onClose={closeInviteDialog}
+        />
+      )}
     </div>
   );
 }

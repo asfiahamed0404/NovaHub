@@ -1,4 +1,9 @@
-import { Navigate, Route, Routes } from "react-router";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router";
 import ProtectedRoute from "./routes/ProtectedRoute.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 
@@ -7,10 +12,16 @@ import LoginPage from "./pages/LoginPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 import WorkspacePage from "./pages/WorkspacePage.jsx";
+import InvitationPage from "./pages/InvitationPage.jsx";
 import NovaHubLogo from "./components/NovaHubLogo.jsx";
+import { getSafeInvitationReturnPath } from "./utils/invitationPath.js";
 
 function App() {
-  const {user,setUser,isLoading} = useAuth();
+  const { user, setUser, isLoading } = useAuth();
+  const location = useLocation();
+  const authReturnPath =
+    getSafeInvitationReturnPath(location.state) ||
+    "/dashboard";
 
   if (isLoading) {
     return (
@@ -40,7 +51,7 @@ function App() {
         path="/login"
         element={
           user ? (
-            <Navigate to="/dashboard" replace />
+            <Navigate to={authReturnPath} replace />
           ) : (
             <LoginPage onLoginSuccess={setUser} />
           )
@@ -51,11 +62,16 @@ function App() {
         path="/register"
         element={
           user ? (
-            <Navigate to="/dashboard" replace />
+            <Navigate to={authReturnPath} replace />
           ) : (
             <RegisterPage onRegisterSuccess={setUser} />
           )
         }
+      />
+
+      <Route
+        path="/invite/:token"
+        element={<InvitationPage />}
       />
 
       <Route

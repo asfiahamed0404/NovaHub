@@ -46,10 +46,11 @@ function JoinWorkspaceForm({ onWorkspaceJoined }) {
         id="join-workspace-heading"
         className="text-heading mt-4 text-lg font-semibold tracking-[-0.015em]"
       >
-        Join a workspace
+        Legacy workspace join
       </h2>
       <p className="text-muted mt-2 text-sm leading-6">
-        Connect to an existing team space using its workspace ID.
+        Compatibility mode is enabled. Join using a workspace ID only when a
+        secure invitation link is unavailable.
       </p>
 
       <form
@@ -62,7 +63,7 @@ function JoinWorkspaceForm({ onWorkspaceJoined }) {
             Workspace ID
           </label>
           <p id="workspace-id-help" className="text-muted mt-1 text-xs leading-5">
-            Enter a workspace ID shared with you.
+            Enter a workspace ID provided through a trusted channel.
           </p>
 
           <input

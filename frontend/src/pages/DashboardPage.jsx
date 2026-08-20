@@ -3,9 +3,16 @@ import WorkspaceList from "../components/WorkspaceList.jsx";
 import CreateWorkspaceForm from "../components/CreateWorkspaceForm.jsx";
 import { useState } from "react";
 import JoinWorkspaceForm from "../components/JoinWorkspaceForm.jsx";
-import { LogoutIcon } from "../components/Icons.jsx";
+import {
+  InviteIcon,
+  LogoutIcon,
+} from "../components/Icons.jsx";
 import NovaHubLogo from "../components/NovaHubLogo.jsx";
 import ThemeSelector from "../components/ThemeSelector.jsx";
+
+const isLegacyWorkspaceJoinEnabled =
+  import.meta.env.VITE_ENABLE_LEGACY_WORKSPACE_JOIN ===
+  "true";
 
 function DashboardPage() {
   const { user, logout } = useAuth();
@@ -118,14 +125,36 @@ function DashboardPage() {
               }}
             />
 
-            <JoinWorkspaceForm
-              onWorkspaceJoined={(joinedWorkspace) => {
-                setWorkspaces((currentWorkspaces) => [
-                  ...currentWorkspaces,
-                  joinedWorkspace,
-                ]);
-              }}
-            />
+            <section
+              className="surface-panel p-5 sm:p-6"
+              aria-labelledby="secure-join-heading"
+            >
+              <span className="accent-tile flex size-9 items-center justify-center rounded-[10px]">
+                <InviteIcon className="size-4" />
+              </span>
+              <h2
+                id="secure-join-heading"
+                className="text-heading mt-4 text-lg font-semibold tracking-[-0.015em]"
+              >
+                Joining a team?
+              </h2>
+              <p className="text-muted mt-2 text-sm leading-6">
+                Ask a current member for a secure invitation link, then open
+                it in this browser. You will review the workspace before
+                explicitly accepting.
+              </p>
+            </section>
+
+            {isLegacyWorkspaceJoinEnabled && (
+              <JoinWorkspaceForm
+                onWorkspaceJoined={(joinedWorkspace) => {
+                  setWorkspaces((currentWorkspaces) => [
+                    ...currentWorkspaces,
+                    joinedWorkspace,
+                  ]);
+                }}
+              />
+            )}
           </aside>
         </div>
       </main>

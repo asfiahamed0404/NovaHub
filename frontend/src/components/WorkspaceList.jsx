@@ -93,8 +93,8 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
               No workspaces yet
             </h3>
             <p className="text-muted mx-auto mt-2 max-w-sm text-sm leading-6">
-              Create a workspace for your team, or join one using an ID shared
-              with you.
+              Create a workspace for your team, or open a secure invitation
+              link shared by a current member.
             </p>
           </div>
         )}
