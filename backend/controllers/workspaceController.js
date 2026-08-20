@@ -114,28 +114,37 @@ export const joinWorkspace = async (req, res) => {
       });
     }
 
-    const workspace = await Workspace.findById(id);
-
-    if (!workspace) {
-      return res.status(404).json({
-        message: "Workspace not found.",
-      });
-    }
-
-    const isAlreadyMember = workspace.members.some(
-      (memberId) =>
-        memberId.toString() === req.user._id.toString()
+    const workspace = await Workspace.findOneAndUpdate(
+      {
+        _id: id,
+        members: { $ne: req.user._id },
+      },
+      {
+        $addToSet: {
+          members: req.user._id,
+        },
+      },
+      {
+        returnDocument: "after",
+        runValidators: true,
+      }
     );
 
-    if (isAlreadyMember) {
+    if (!workspace) {
+      const existingWorkspace = await Workspace.findById(
+        id
+      ).select("members");
+
+      if (!existingWorkspace) {
+        return res.status(404).json({
+          message: "Workspace not found.",
+        });
+      }
+
       return res.status(400).json({
         message: "You are already a member of this workspace.",
       });
     }
-
-    workspace.members.push(req.user._id);
-
-    await workspace.save();
 
     await workspace.populate(
       "createdBy",
@@ -149,10 +158,12 @@ export const joinWorkspace = async (req, res) => {
 
     const io = req.app.get("io");
 
-    io.to(id).emit(
-      "workspace_updated",
-      workspace
-    );
+    if (io) {
+      io.to(id).emit(
+        "workspace_updated",
+        workspace
+      );
+    }
 
     res.status(200).json({
       message: "Joined workspace successfully",
@@ -175,62 +186,73 @@ export const leaveWorkspace = async (req, res) => {
       });
     }
 
-    const workspace = await Workspace.findById(id);
+    const updatedWorkspace =
+      await Workspace.findOneAndUpdate(
+        {
+          _id: id,
+          createdBy: { $ne: req.user._id },
+          members: req.user._id,
+        },
+        {
+          $pull: {
+            members: req.user._id,
+          },
+        },
+        {
+          returnDocument: "after",
+          runValidators: true,
+        }
+      );
 
-    if (!workspace) {
-      return res.status(404).json({
-        message: "Workspace not found.",
-      });
-    }
+    if (!updatedWorkspace) {
+      const currentWorkspace = await Workspace.findById(
+        id
+      ).select("createdBy members");
 
-    const isMember = workspace.members.some(
-      (memberId) =>
-        memberId.toString() === req.user._id.toString()
-    );
+      if (!currentWorkspace) {
+        return res.status(404).json({
+          message: "Workspace not found.",
+        });
+      }
 
-    if (!isMember) {
+      const isStillCreator =
+        currentWorkspace.createdBy.toString() ===
+        req.user._id.toString();
+
+      if (isStillCreator) {
+        return res.status(400).json({
+          message:
+            "Workspace creator cannot leave the workspace. Transfer ownership or delete the workspace instead.",
+        });
+      }
+
       return res.status(403).json({
         message: "You are not a member of this workspace.",
       });
     }
 
-    const isCreator =
-      workspace.createdBy.toString() === req.user._id.toString();
-
-    if (isCreator) {
-      return res.status(400).json({
-        message:
-          "Workspace creator cannot leave the workspace. Transfer ownership or delete the workspace instead.",
-      });
-    }
-
-    workspace.members = workspace.members.filter(
-      (memberId) =>
-        memberId.toString() !== req.user._id.toString()
-    );
-
-    await workspace.save();
-
-    await workspace.populate(
+    await updatedWorkspace.populate(
       "createdBy",
       "name email avatar status"
     );
 
-    await workspace.populate(
+    await updatedWorkspace.populate(
       "members",
       "name email avatar status"
     );
 
     const io = req.app.get("io");
 
-    io.to(id).emit(
-      "workspace_updated",
-      workspace
-    );
+    if (io) {
+      io.to(id).emit(
+        "workspace_updated",
+        updatedWorkspace
+      );
+    }
 
     res.status(200).json({
       message: "Left workspace successfully",
-      workspace,
+      workspace: updatedWorkspace,
     });
   } catch (error) {
     res.status(500).json({

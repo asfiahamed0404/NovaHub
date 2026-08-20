@@ -17,7 +17,6 @@ const startServer = async () => {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: "*",
       origin: process.env.CLIENT_URL,
       methods: ["GET", "POST"],
     },
