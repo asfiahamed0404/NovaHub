@@ -1,0 +1,29 @@
+services:
+  mongo:
+    image: mongo:8.0
+    command:
+      - mongod
+      - --replSet
+      - rs0
+      - --bind_ip_all
+      - --port
+      - "27019"
+    ports:
+      - "127.0.0.1:27019:27019"
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --port
+        - "27019"
+        - --eval
+        - 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)'
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - invitation-mongo-data:/data/db
+
+volumes:
+  invitation-mongo-data:

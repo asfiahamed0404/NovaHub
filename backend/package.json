@@ -5,8 +5,13 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js"
-},
+    "start": "node server.js",
+    "test:integration:invitations": "node --test --test-concurrency=1 tests/integration/invitations.integration.test.js",
+    "test:integration:invitations:docker": "node scripts/runInvitationIntegrationTests.js",
+    "test:integration:invitations:socket": "node --test --test-concurrency=1 tests/integration/invitations.socket.integration.test.js",
+    "test:integration:invitations:socket:docker": "node scripts/runInvitationIntegrationTests.js --socket-only",
+    "test:integration:invitations:all:docker": "node scripts/runInvitationIntegrationTests.js --all"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -21,6 +26,7 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "socket.io-client": "^4.8.3"
   }
 }
