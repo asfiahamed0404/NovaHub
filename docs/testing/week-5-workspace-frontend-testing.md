@@ -133,6 +133,8 @@ Passed
 
 ## 7. Join Workspace
 
+> Historical result: this section records the original workspace-ID flow. The current application hides it unless `VITE_ENABLE_LEGACY_WORKSPACE_JOIN=true`, and the backend also requires `ENABLE_LEGACY_WORKSPACE_JOIN=true`. Secure invitation links are now the normal admission path.
+
 ### Steps
 
 1. Login using a second user account.
