@@ -74,6 +74,26 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
     [workspaceId]
   );
 
+  const fetchCurrentWorkspace = useCallback(
+    async () => {
+      try {
+        const response = await api.get(
+          `/workspaces/${workspaceId}`
+        );
+
+        if (!response.data?.workspace) {
+          return false;
+        }
+
+        onWorkspaceUpdated(response.data.workspace);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [onWorkspaceUpdated, workspaceId]
+  );
+
   useEffect(() => {
     let ignore = false;
 
@@ -149,12 +169,13 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
 
       setConnectionStatus("syncing");
 
-      const wasSuccessful =
-        await fetchMessages({
-          merge: true,
-        });
+      const [messagesWereSynced, workspaceWasSynced] =
+        await Promise.all([
+          fetchMessages({ merge: true }),
+          fetchCurrentWorkspace(),
+        ]);
 
-      if (wasSuccessful) {
+      if (messagesWereSynced && workspaceWasSynced) {
         showSyncedStatus();
       } else {
         setConnectionStatus("sync-error");
@@ -364,7 +385,12 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
 
       socket.disconnect();
     };
-  }, [workspaceId,onWorkspaceUpdated,fetchMessages,]);
+  }, [
+    workspaceId,
+    onWorkspaceUpdated,
+    fetchMessages,
+    fetchCurrentWorkspace,
+  ]);
 
   useEffect(() => {
     const messageHistory =
