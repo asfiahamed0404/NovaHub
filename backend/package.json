@@ -10,7 +10,9 @@
     "test:integration:invitations:docker": "node scripts/runInvitationIntegrationTests.js",
     "test:integration:invitations:socket": "node --test --test-concurrency=1 tests/integration/invitations.socket.integration.test.js",
     "test:integration:invitations:socket:docker": "node scripts/runInvitationIntegrationTests.js --socket-only",
-    "test:integration:invitations:all:docker": "node scripts/runInvitationIntegrationTests.js --all"
+    "test:integration:invitations:all:docker": "node scripts/runInvitationIntegrationTests.js --all",
+    "test:integration:readstate": "node --test --test-concurrency=1 tests/integration/readState.integration.test.js",
+    "test:integration:readstate:docker": "node scripts/runReadStateIntegrationTests.js"
   },
   "keywords": [],
   "author": "",

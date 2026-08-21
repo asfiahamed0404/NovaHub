@@ -117,7 +117,7 @@ export const getWorkspaceMessages = async (req, res) => {
       workspace: workspace._id,
     })
       .populate("sender", "name email avatar status")
-      .sort({ createdAt: 1 });
+      .sort({ createdAt: 1, _id: 1 });
 
     res.status(200).json({
       count: messages.length,
