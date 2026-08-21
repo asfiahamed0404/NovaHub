@@ -1,42 +1,4 @@
-const CONFIGURATION_RULES = Object.freeze({
-  rateLimitMax: {
-    environmentVariable: "AI_SUMMARY_RATE_LIMIT_MAX",
-    defaultValue: 5,
-    minimum: 1,
-    maximum: 1000,
-  },
-  rateLimitWindowMinutes: {
-    environmentVariable: "AI_SUMMARY_RATE_LIMIT_WINDOW_MINUTES",
-    defaultValue: 60,
-    minimum: 1,
-    maximum: 1440,
-  },
-  maxMessages: {
-    environmentVariable: "AI_SUMMARY_MAX_MESSAGES",
-    defaultValue: 100,
-    minimum: 1,
-    maximum: 1000,
-  },
-  maxChars: {
-    environmentVariable: "AI_SUMMARY_MAX_CHARS",
-    defaultValue: 18000,
-    minimum: 100,
-    maximum: 500000,
-  },
-  timeoutMs: {
-    environmentVariable: "AI_PROVIDER_TIMEOUT_MS",
-    defaultValue: 20000,
-    minimum: 1000,
-    maximum: 120000,
-  },
-});
-
-const readBoundedInteger = ({
-  environmentVariable,
-  defaultValue,
-  minimum,
-  maximum,
-}) => {
+const readBoundedInteger = (environmentVariable, defaultValue, minimum, maximum) => {
   const configuredValue = process.env[environmentVariable];
 
   if (typeof configuredValue !== "string") {
@@ -69,19 +31,97 @@ export const getAiConfig = () => {
     process.env.CLOUDFLARE_AI_MODEL?.trim() ||
     "@cf/qwen/qwen3-30b-a3b-fp8";
 
-  const boundedConfig = Object.fromEntries(
-    Object.entries(CONFIGURATION_RULES).map(
-      ([configurationKey, rule]) => [
-        configurationKey,
-        readBoundedInteger(rule),
-      ]
-    )
+  const rateLimitWindowMinutes = readBoundedInteger(
+    "AI_SUMMARY_RATE_LIMIT_WINDOW_MINUTES",
+    60,
+    1,
+    1440
+  );
+
+  const timeoutMs = readBoundedInteger(
+    "AI_PROVIDER_TIMEOUT_MS",
+    20000,
+    1000,
+    120000
+  );
+
+  // Free tier config precedence: AI_FREE_SUMMARY_* -> legacy AI_SUMMARY_* -> default
+  const legacyRateLimitMax = readBoundedInteger(
+    "AI_SUMMARY_RATE_LIMIT_MAX",
+    5,
+    1,
+    1000
+  );
+  const freeRateLimitMax = readBoundedInteger(
+    "AI_FREE_SUMMARY_RATE_LIMIT_MAX",
+    legacyRateLimitMax,
+    1,
+    1000
+  );
+
+  const legacyMaxMessages = readBoundedInteger(
+    "AI_SUMMARY_MAX_MESSAGES",
+    100,
+    1,
+    1000
+  );
+  const freeMaxMessages = readBoundedInteger(
+    "AI_FREE_SUMMARY_MAX_MESSAGES",
+    legacyMaxMessages,
+    1,
+    1000
+  );
+
+  const legacyMaxChars = readBoundedInteger(
+    "AI_SUMMARY_MAX_CHARS",
+    18000,
+    100,
+    500000
+  );
+  const freeMaxChars = readBoundedInteger(
+    "AI_FREE_SUMMARY_MAX_CHARS",
+    legacyMaxChars,
+    100,
+    500000
+  );
+
+  // Premium tier config
+  const premiumRateLimitMax = readBoundedInteger(
+    "AI_PREMIUM_SUMMARY_RATE_LIMIT_MAX",
+    50,
+    1,
+    1000
+  );
+  const premiumMaxMessages = readBoundedInteger(
+    "AI_PREMIUM_SUMMARY_MAX_MESSAGES",
+    1000,
+    1,
+    5000
+  );
+  const premiumMaxChars = readBoundedInteger(
+    "AI_PREMIUM_SUMMARY_MAX_CHARS",
+    60000,
+    100,
+    500000
   );
 
   return {
     accountId,
     apiToken,
     model,
-    ...boundedConfig,
+    rateLimitWindowMinutes,
+    timeoutMs,
+    // Free limits
+    freeRateLimitMax,
+    freeMaxMessages,
+    freeMaxChars,
+    // Premium limits
+    premiumRateLimitMax,
+    premiumMaxMessages,
+    premiumMaxChars,
+    // Legacy properties for backward compatibility
+    rateLimitMax: freeRateLimitMax,
+    maxMessages: freeMaxMessages,
+    maxChars: freeMaxChars,
   };
 };

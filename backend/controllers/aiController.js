@@ -5,6 +5,7 @@ import Workspace from "../models/Workspace.js";
 import WorkspaceReadState from "../models/WorkspaceReadState.js";
 import AiUsageRateLimit from "../models/AiUsageRateLimit.js";
 import { getAiConfig } from "../utils/aiConfig.js";
+import { getEntitlementsForUser } from "../services/entitlements/entitlementService.js";
 import {
   generateWorkspaceSummary,
   AiProviderError,
@@ -15,9 +16,9 @@ const VALID_SCOPES = new Set(["missed", "recent", "overview"]);
 /**
  * Enforce MongoDB-backed user-level rate limit across all workspaces.
  * Limit: 60-minute request window anchored at first request.
- * Returns retryAfterSeconds if rate limit is exceeded.
+ * Supports plan-based maxRequestsPerWindow.
  */
-const checkAndIncrementAiRateLimit = async (userId) => {
+const checkAndIncrementAiRateLimit = async (userId, maxRequestsPerWindow) => {
   const config = getAiConfig();
   const lockId = `user_${userId.toString()}`;
   const now = new Date();
@@ -35,7 +36,7 @@ const checkAndIncrementAiRateLimit = async (userId) => {
             { windowStartedAt: { $exists: false } },
             { windowStartedAt: { $gt: windowStartCutoff } },
           ],
-          requestCount: { $lt: config.rateLimitMax },
+          requestCount: { $lt: maxRequestsPerWindow },
         },
         {
           $inc: { requestCount: 1 },
@@ -64,43 +65,45 @@ const checkAndIncrementAiRateLimit = async (userId) => {
     );
 
     if (currentLock) {
-      // If window is still active, limit is exceeded
+      // If window is still active
       if (currentLock.windowStartedAt.getTime() > windowStartCutoff.getTime()) {
-        const resetTime = currentLock.windowStartedAt.getTime() + windowMs;
-        const retryAfterSeconds = Math.max(
-          1,
-          Math.ceil((resetTime - now.getTime()) / 1000)
+        if (currentLock.requestCount >= maxRequestsPerWindow) {
+          const resetTime = currentLock.windowStartedAt.getTime() + windowMs;
+          const retryAfterSeconds = Math.max(
+            1,
+            Math.ceil((resetTime - now.getTime()) / 1000)
+          );
+
+          return {
+            allowed: false,
+            retryAfterSeconds,
+          };
+        }
+      } else {
+        // Window expired: try resetting window
+        const resetLock = await AiUsageRateLimit.findOneAndUpdate(
+          {
+            _id: lockId,
+            windowStartedAt: currentLock.windowStartedAt,
+          },
+          {
+            $set: {
+              user: userId,
+              windowStartedAt: now,
+              requestCount: 1,
+              expireAt,
+            },
+          },
+          { returnDocument: "after" }
         );
 
-        return {
-          allowed: false,
-          retryAfterSeconds,
-        };
+        if (resetLock) {
+          return { allowed: true };
+        }
+
+        // Another concurrent request reset the window first; continue to retry atomic increment against the new window
+        continue;
       }
-
-      // Window expired: try resetting window
-      const resetLock = await AiUsageRateLimit.findOneAndUpdate(
-        {
-          _id: lockId,
-          windowStartedAt: currentLock.windowStartedAt,
-        },
-        {
-          $set: {
-            user: userId,
-            windowStartedAt: now,
-            requestCount: 1,
-            expireAt,
-          },
-        },
-        { returnDocument: "after" }
-      );
-
-      if (resetLock) {
-        return { allowed: true };
-      }
-
-      // Another concurrent request reset the window first; continue to retry atomic increment against the new window
-      continue;
     }
   }
 
@@ -125,6 +128,7 @@ const checkAndIncrementAiRateLimit = async (userId) => {
  * POST /api/workspaces/:workspaceId/ai/summary
  *
  * Generates an AI summary for a workspace according to scope ("missed" | "recent" | "overview").
+ * Plan entitlements (rate limit, max messages, max chars) are resolved from authenticated req.user.
  */
 export const getWorkspaceAiSummary = async (req, res) => {
   try {
@@ -164,7 +168,11 @@ export const getWorkspaceAiSummary = async (req, res) => {
       });
     }
 
-    const config = getAiConfig();
+    // Resolve plan entitlements strictly from authenticated user (ignoring any client body overrides)
+    const entitlements = getEntitlementsForUser(req.user);
+    const { requestsPerWindow, windowMinutes, maxMessages, maxChars } =
+      entitlements.aiSummary;
+
     let messages = [];
     let totalEligibleMessages = 0;
 
@@ -230,7 +238,7 @@ export const getWorkspaceAiSummary = async (req, res) => {
         messages = await Message.find(missedFilter)
           .populate("sender", "name")
           .sort({ createdAt: 1, _id: 1 })
-          .limit(config.maxMessages);
+          .limit(maxMessages);
       } else {
         totalEligibleMessages = 0;
         messages = [];
@@ -245,7 +253,7 @@ export const getWorkspaceAiSummary = async (req, res) => {
       })
         .populate("sender", "name")
         .sort({ createdAt: -1, _id: -1 })
-        .limit(config.maxMessages);
+        .limit(maxMessages);
 
       // Restore canonical chronological order (createdAt ASC, _id ASC)
       messages = newestMessages.reverse();
@@ -254,7 +262,7 @@ export const getWorkspaceAiSummary = async (req, res) => {
         workspace: workspaceId,
       });
 
-      if (totalEligibleMessages <= config.maxMessages) {
+      if (totalEligibleMessages <= maxMessages) {
         messages = await Message.find({
           workspace: workspaceId,
         })
@@ -267,7 +275,7 @@ export const getWorkspaceAiSummary = async (req, res) => {
         })
           .populate("sender", "name")
           .sort({ createdAt: -1, _id: -1 })
-          .limit(config.maxMessages);
+          .limit(maxMessages);
 
         messages = newestMessages.reverse();
       }
@@ -285,9 +293,10 @@ export const getWorkspaceAiSummary = async (req, res) => {
       return res.status(200).json(emptySummary);
     }
 
-    // Enforce user-level rate limit for requests with messages
+    // Enforce user-level rate limit for requests with messages using user's plan limit
     const rateLimitCheck = await checkAndIncrementAiRateLimit(
-      req.user._id
+      req.user._id,
+      requestsPerWindow
     );
 
     if (!rateLimitCheck.allowed) {
@@ -297,7 +306,7 @@ export const getWorkspaceAiSummary = async (req, res) => {
       );
 
       return res.status(429).json({
-        message: `AI summary rate limit exceeded. You can make up to ${config.rateLimitMax} summary requests per ${config.rateLimitWindowMinutes} minutes.`,
+        message: `AI summary rate limit exceeded. You can make up to ${requestsPerWindow} summary requests per ${windowMinutes} minutes.`,
         code: "RATE_LIMIT_EXCEEDED",
         retryAfterSeconds: rateLimitCheck.retryAfterSeconds,
       });
@@ -307,6 +316,11 @@ export const getWorkspaceAiSummary = async (req, res) => {
       messages,
       scope,
       totalEligibleMessages,
+      overrideConfig: {
+        ...getAiConfig(),
+        maxMessages,
+        maxChars,
+      },
     });
 
     res.set("Cache-Control", "no-store");
