@@ -4,6 +4,7 @@ import authRoutes from "./routes/authRoutes.js";
 import workspaceRoutes from "./routes/workspaceRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
 import readStateRoutes from "./routes/readStateRoutes.js";
+import aiRoutes from "./routes/aiRoutes.js";
 import invitationRoutes from "./routes/invitationRoutes.js";
 
 const app = express();
@@ -61,6 +62,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/workspaces", workspaceRoutes);
 app.use("/api/workspaces/:workspaceId/messages", messageRoutes);
 app.use("/api/workspaces/:workspaceId/read-state", readStateRoutes);
+app.use("/api/workspaces/:workspaceId/ai", aiRoutes);
 app.use("/api/invitations", invitationRoutes);
 
 // Test Route
