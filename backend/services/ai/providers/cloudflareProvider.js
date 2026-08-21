@@ -6,6 +6,42 @@ export class AiProviderError extends Error {
   }
 }
 
+/**
+ * Extract the generated text from Cloudflare Workers AI response data.
+ *
+ * Supported response shapes (tried in priority order):
+ *   1. result.choices[0].message.content  — Chat Completions format (observed live)
+ *   2. result.response                    — Legacy Workers AI text format
+ *
+ * reasoning / reasoning_content are intentionally ignored — they are internal
+ * chain-of-thought outputs and must never be used as the user-facing summary.
+ *
+ * Returns: { text: string | null, finishReason: string | null }
+ */
+const extractResultText = (data) => {
+  // 1. Choices-based Chat Completions format (primary — observed with qwen3-30b-a3b-fp8)
+  const choices = data?.result?.choices;
+  if (Array.isArray(choices) && choices.length > 0) {
+    const choice = choices[0];
+    const finishReason = choice?.finish_reason ?? null;
+    // message.content is the user-visible generated text.
+    // reasoning / reasoning_content are internal CoT and are explicitly excluded.
+    const content = choice?.message?.content;
+    const text =
+      typeof content === "string" && content.trim() ? content.trim() : null;
+
+    return { text, finishReason };
+  }
+
+  // 2. Legacy Workers AI response field
+  const legacyText = data?.result?.response;
+  if (typeof legacyText === "string" && legacyText.trim()) {
+    return { text: legacyText.trim(), finishReason: null };
+  }
+
+  return { text: null, finishReason: null };
+};
+
 export const generateSummaryWithCloudflare = async ({
   systemPrompt,
   userPrompt,
@@ -27,7 +63,10 @@ export const generateSummaryWithCloudflare = async ({
       { role: "user", content: userPrompt },
     ],
     temperature: 0.2,
-    max_tokens: 1024,
+    // 2048 tokens is sufficient headroom for the structured JSON output schema
+    // (summary + decisions + actionItems + openQuestions), while remaining
+    // comfortably within free-tier Workers AI limits.
+    max_tokens: 2048,
   };
 
   try {
@@ -66,15 +105,20 @@ export const generateSummaryWithCloudflare = async ({
     }
 
     const data = await response.json();
+    const { text, finishReason } = extractResultText(data);
 
-    // Cloudflare Workers AI standard response shape: { result: { response: "..." } }
-    const resultText =
-      data?.result?.response ||
-      data?.result ||
-      data?.response ||
-      "";
+    // If generation was truncated by token limit and produced no usable content,
+    // treat it as an incomplete generation error. Do not fall through or expose
+    // reasoning text.
+    if (!text && finishReason === "length") {
+      throw new AiProviderError(
+        502,
+        "AI_PROVIDER_INCOMPLETE_GENERATION",
+        "AI provider generation was truncated before completion."
+      );
+    }
 
-    if (typeof resultText !== "string" || !resultText.trim()) {
+    if (!text) {
       throw new AiProviderError(
         502,
         "AI_PROVIDER_MALFORMED_RESPONSE",
@@ -82,7 +126,7 @@ export const generateSummaryWithCloudflare = async ({
       );
     }
 
-    return resultText.trim();
+    return text;
   } catch (error) {
     if (error instanceof AiProviderError) {
       throw error;

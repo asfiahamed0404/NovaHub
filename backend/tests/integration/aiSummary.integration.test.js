@@ -907,3 +907,186 @@ test("35. expired existing rate-limit window with concurrent requests allows up 
   assert.equal(doc.requestCount, 5);
 });
 
+// =====================================================
+// Provider compatibility tests (#36–#40)
+// =====================================================
+
+const { generateSummaryWithCloudflare, AiProviderError: ProviderError } =
+  await import("../../services/ai/providers/cloudflareProvider.js");
+
+/**
+ * Build a minimal fake config that bypasses the unconfigured guard.
+ */
+const fakeProviderConfig = {
+  accountId: "test-account",
+  apiToken: "test-token",
+  model: "@cf/qwen/qwen3-30b-a3b-fp8",
+  timeoutMs: 5000,
+};
+
+/**
+ * Wrap fetch with a stub that returns a fixed response body.
+ */
+const withFakeFetch = async (responseBody, statusCode, fn) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify(responseBody), {
+      status: statusCode,
+      headers: { "Content-Type": "application/json" },
+    });
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+};
+
+// 36. choices-based response: message.content contains valid JSON -> parsed successfully
+test("36. Cloudflare choices response: message.content is returned as provider text", async () => {
+  const mockContent = JSON.stringify({
+    summary: "Discussion about deployment pipeline.",
+    decisions: ["Use Docker for staging"],
+    actionItems: ["Update CI config"],
+    openQuestions: ["Timeline?"],
+  });
+
+  const responseBody = {
+    result: {
+      choices: [
+        {
+          finish_reason: "stop",
+          message: {
+            content: mockContent,
+            reasoning: "Internal reasoning text — must not be used",
+            reasoning_content: "More internal reasoning",
+          },
+        },
+      ],
+      response: null,
+    },
+    success: true,
+  };
+
+  const text = await withFakeFetch(responseBody, 200, () =>
+    generateSummaryWithCloudflare({
+      systemPrompt: "summarize",
+      userPrompt: "[]",
+      config: fakeProviderConfig,
+    })
+  );
+
+  assert.equal(text, mockContent);
+  assert.ok(!text.includes("Internal reasoning text"), "reasoning must not be in result");
+  assert.ok(!text.includes("More internal reasoning"), "reasoning_content must not be in result");
+});
+
+// 37. Legacy result.response fallback still works
+test("37. legacy result.response fallback shape is supported", async () => {
+  const legacyText = '{"summary":"Legacy summary.","decisions":[],"actionItems":[],"openQuestions":[]}';
+
+  const responseBody = {
+    result: {
+      response: legacyText,
+    },
+    success: true,
+  };
+
+  const text = await withFakeFetch(responseBody, 200, () =>
+    generateSummaryWithCloudflare({
+      systemPrompt: "summarize",
+      userPrompt: "[]",
+      config: fakeProviderConfig,
+    })
+  );
+
+  assert.equal(text, legacyText);
+});
+
+// 38. choices message.content = null + finish_reason = "length" -> controlled error, reasoning NOT used
+test("38. choices with null content and finish_reason=length returns controlled incomplete-generation error", async () => {
+  const responseBody = {
+    result: {
+      choices: [
+        {
+          finish_reason: "length",
+          message: {
+            content: null,
+            reasoning: "Thinking step: okay the user wants...",
+            reasoning_content: "Okay the user wants...",
+          },
+        },
+      ],
+      response: null,
+    },
+    success: true,
+  };
+
+  await assert.rejects(
+    () =>
+      withFakeFetch(responseBody, 200, () =>
+        generateSummaryWithCloudflare({
+          systemPrompt: "summarize",
+          userPrompt: "[]",
+          config: fakeProviderConfig,
+        })
+      ),
+    (error) => {
+      assert.ok(error instanceof ProviderError, "must be AiProviderError");
+      assert.equal(error.code, "AI_PROVIDER_INCOMPLETE_GENERATION");
+      assert.equal(error.status, 502);
+      return true;
+    }
+  );
+});
+
+// 39. reasoning/reasoning_content never appear in normalized NovaHub output
+test("39. reasoning and reasoning_content fields are never present in normalized output", async () => {
+  const member = await makeUser("owner");
+  const workspace = await makeWorkspace([member.user]);
+  await makeMessage(workspace._id, member.user._id);
+
+  // Provider returns choices-based content with reasoning fields; service must strip them
+  const mockContent = JSON.stringify({
+    summary: "Clean summary.",
+    decisions: [],
+    actionItems: [],
+    openQuestions: [],
+  });
+
+  setAiProviderOverride(async () => mockContent);
+
+  const res = await requestSummary(workspace._id, member.token, { scope: "overview" });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.summary, "Clean summary.");
+  assert.ok(!("reasoning" in res.body), "reasoning must not appear in API response");
+  assert.ok(!("reasoning_content" in res.body), "reasoning_content must not appear in API response");
+  assert.ok(!("choices" in res.body), "choices must not appear in API response");
+});
+
+// 40. Empty choices array produces controlled malformed-response provider error
+test("40. empty choices array and no result.response produces controlled malformed-response error", async () => {
+  const responseBody = {
+    result: {
+      choices: [],
+      response: null,
+    },
+    success: true,
+  };
+
+  await assert.rejects(
+    () =>
+      withFakeFetch(responseBody, 200, () =>
+        generateSummaryWithCloudflare({
+          systemPrompt: "summarize",
+          userPrompt: "[]",
+          config: fakeProviderConfig,
+        })
+      ),
+    (error) => {
+      assert.ok(error instanceof ProviderError, "must be AiProviderError");
+      assert.equal(error.code, "AI_PROVIDER_MALFORMED_RESPONSE");
+      assert.equal(error.status, 502);
+      return true;
+    }
+  );
+});
