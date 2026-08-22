@@ -13,3 +13,6 @@ Thumbs.db
 
 # Local testing files
 socket-test.html
+.vercel/
+.env*
+!.env.example
