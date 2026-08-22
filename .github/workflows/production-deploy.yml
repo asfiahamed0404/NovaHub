@@ -30,9 +30,9 @@ permissions:
 
 jobs:
 
-  # ─────────────────────────────────────────────────────────────
-  # Detect which application components changed
-  # ─────────────────────────────────────────────────────────────
+  # ============================================================
+  # JOB 1 - Detect changed components
+  # ============================================================
   detect-changes:
     name: Detect Changed Components
     runs-on: ubuntu-latest
@@ -54,20 +54,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Manual run
+          ZERO_SHA="0000000000000000000000000000000000000000"
+
+          # ------------------------------------------------------
+          # Manual workflow run
+          # ------------------------------------------------------
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
 
             COMPONENT="${{ inputs.component }}"
+
+            echo "Manual validation requested for: $COMPONENT"
 
             case "$COMPONENT" in
               both)
                 echo "backend_changed=true" >> "$GITHUB_OUTPUT"
                 echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
                 ;;
+
               backend)
                 echo "backend_changed=true" >> "$GITHUB_OUTPUT"
                 echo "frontend_changed=false" >> "$GITHUB_OUTPUT"
                 ;;
+
               frontend)
                 echo "backend_changed=false" >> "$GITHUB_OUTPUT"
                 echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
@@ -75,71 +83,140 @@ jobs:
             esac
 
             echo "workflow_changed=false" >> "$GITHUB_OUTPUT"
+
             exit 0
           fi
 
-          # Pull request
+          # ------------------------------------------------------
+          # Pull Request
+          # ------------------------------------------------------
           if [ "${{ github.event_name }}" = "pull_request" ]; then
+
             BEFORE="${{ github.event.pull_request.base.sha }}"
             AFTER="${{ github.event.pull_request.head.sha }}"
+
           else
+
+            # ----------------------------------------------------
             # Push to main
+            # ----------------------------------------------------
             BEFORE="${{ github.event.before }}"
             AFTER="${{ github.sha }}"
+
           fi
 
-          echo "Checking changes:"
+          echo "Comparing:"
           echo "$BEFORE -> $AFTER"
 
+          # ------------------------------------------------------
+          # Safety for unusual initial/force push
+          # ------------------------------------------------------
+          if [ "$BEFORE" = "$ZERO_SHA" ]; then
+
+            echo "Zero BEFORE SHA detected."
+            echo "Treating backend, frontend and workflow as changed."
+
+            echo "backend_changed=true" >> "$GITHUB_OUTPUT"
+            echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_changed=true" >> "$GITHUB_OUTPUT"
+
+            exit 0
+          fi
+
+          # ------------------------------------------------------
+          # Find changed files
+          # ------------------------------------------------------
           CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER")
 
+          echo ""
           echo "Changed files:"
           echo "$CHANGED_FILES"
+          echo ""
 
           BACKEND_CHANGED=false
           FRONTEND_CHANGED=false
           WORKFLOW_CHANGED=false
 
+          # ------------------------------------------------------
+          # Backend application changes
+          #
+          # Ignore:
+          # - Markdown files
+          # - backend/docs/
+          # ------------------------------------------------------
           BACKEND_APP=$(echo "$CHANGED_FILES" \
             | grep -E '^backend/' \
             | grep -vE '(\.md$|^backend/docs/)' \
             || true)
 
+          # ------------------------------------------------------
+          # Frontend application changes
+          #
+          # Ignore:
+          # - Markdown files
+          # - frontend/docs/
+          # ------------------------------------------------------
           FRONTEND_APP=$(echo "$CHANGED_FILES" \
             | grep -E '^frontend/' \
             | grep -vE '(\.md$|^frontend/docs/)' \
             || true)
 
+          # ------------------------------------------------------
+          # Workflow changed
+          # ------------------------------------------------------
+          WORKFLOW_FILE=$(echo "$CHANGED_FILES" \
+            | grep -xF '.github/workflows/production-deploy.yml' \
+            || true)
+
           if [ -n "$BACKEND_APP" ]; then
             BACKEND_CHANGED=true
+
+            echo "Backend application changes:"
+            echo "$BACKEND_APP"
+            echo ""
           fi
 
           if [ -n "$FRONTEND_APP" ]; then
             FRONTEND_CHANGED=true
+
+            echo "Frontend application changes:"
+            echo "$FRONTEND_APP"
+            echo ""
           fi
 
-          if echo "$CHANGED_FILES" \
-            | grep -q '^\.github/workflows/production-deploy\.yml$'; then
+          if [ -n "$WORKFLOW_FILE" ]; then
             WORKFLOW_CHANGED=true
+
+            echo "CI workflow changed."
+            echo ""
           fi
 
+          # ------------------------------------------------------
+          # Export results
+          # ------------------------------------------------------
           echo "backend_changed=$BACKEND_CHANGED" >> "$GITHUB_OUTPUT"
           echo "frontend_changed=$FRONTEND_CHANGED" >> "$GITHUB_OUTPUT"
           echo "workflow_changed=$WORKFLOW_CHANGED" >> "$GITHUB_OUTPUT"
 
       - name: Change summary
         run: |
+          echo "============================================"
+          echo " NovaHub Change Detection"
+          echo "============================================"
           echo "Backend changed  : ${{ steps.changes.outputs.backend_changed }}"
           echo "Frontend changed : ${{ steps.changes.outputs.frontend_changed }}"
           echo "Workflow changed : ${{ steps.changes.outputs.workflow_changed }}"
+          echo "============================================"
 
 
-  # ─────────────────────────────────────────────────────────────
-  # Backend CI
-  # ─────────────────────────────────────────────────────────────
+  # ============================================================
+  # JOB 2 - Backend validation
+  # ============================================================
   validate-backend:
     name: Validate Backend
-    needs: detect-changes
+
+    needs:
+      - detect-changes
 
     if: |
       needs.detect-changes.outputs.backend_changed == 'true' ||
@@ -159,7 +236,9 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - name: Install backend dependencies
-        run: cd backend && npm ci
+        run: |
+          cd backend
+          npm ci
 
       - name: Syntax check
         run: |
@@ -168,27 +247,41 @@ jobs:
           node --check app.js
 
       - name: Security audit
-        run: cd backend && npm audit
+        run: |
+          cd backend
+          npm audit
 
       - name: ReadState integration tests
-        run: cd backend && npm run test:integration:readstate:docker
+        run: |
+          cd backend
+          npm run test:integration:readstate:docker
 
       - name: AI Summary integration tests
-        run: cd backend && npm run test:integration:aisummary:docker
+        run: |
+          cd backend
+          npm run test:integration:aisummary:docker
 
       - name: Invitation integration tests
-        run: cd backend && npm run test:integration:invitations:all:docker
+        run: |
+          cd backend
+          npm run test:integration:invitations:all:docker
 
       - name: Role / Plan / Entitlements integration tests
         run: |
+          set -euo pipefail
+
           cd backend
 
           COMPOSE_FILE="tests/integration/docker-compose.yml"
           COMPOSE_PROJECT="novahub-entitlement-tests"
+
           DB_NAME="novahub_entitlements_test"
+
           TEST_URI="mongodb://127.0.0.1:27019/${DB_NAME}?replicaSet=rs0&directConnection=true"
 
           cleanup() {
+            echo "Cleaning up MongoDB integration-test environment..."
+
             docker compose \
               -f "$COMPOSE_FILE" \
               --project-name "$COMPOSE_PROJECT" \
@@ -197,47 +290,76 @@ jobs:
 
           trap cleanup EXIT
 
+          echo "Starting MongoDB replica set..."
+
           docker compose \
             -f "$COMPOSE_FILE" \
             --project-name "$COMPOSE_PROJECT" \
             up --detach --wait --wait-timeout 120
 
+          echo "Initializing replica set..."
+
           docker compose \
             -f "$COMPOSE_FILE" \
             --project-name "$COMPOSE_PROJECT" \
             exec -T mongo \
-            mongosh --quiet --port 27019 --eval \
+            mongosh \
+            --quiet \
+            --port 27019 \
+            --eval \
             'try { rs.status() } catch (e) { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "localhost:27019" }] }) }'
 
+          echo "Waiting for writable MongoDB primary..."
+
+          PRIMARY_READY=0
+
           for attempt in $(seq 1 60); do
+
             if docker compose \
               -f "$COMPOSE_FILE" \
               --project-name "$COMPOSE_PROJECT" \
               exec -T mongo \
-              mongosh --quiet --port 27019 \
+              mongosh \
+              --quiet \
+              --port 27019 \
               --eval 'quit(db.hello().isWritablePrimary ? 0 : 2)' \
               2>/dev/null; then
 
               echo "Replica-set primary is ready."
+
+              PRIMARY_READY=1
+
               break
             fi
+
+            echo "Waiting for replica-set primary... attempt $attempt/60"
 
             sleep 1
           done
 
+          if [ "$PRIMARY_READY" -ne 1 ]; then
+            echo "ERROR: MongoDB replica set did not become writable."
+            exit 1
+          fi
+
+          echo "Running Role / Plan / Entitlements tests..."
+
           TEST_MONGO_URI="$TEST_URI" \
           CONFIRM_ENTITLEMENTS_TEST_DATABASE="$DB_NAME" \
-          node --test \
+          node \
+            --test \
             --test-concurrency=1 \
             tests/integration/rolePlanEntitlements.integration.test.js
 
 
-  # ─────────────────────────────────────────────────────────────
-  # Frontend CI
-  # ─────────────────────────────────────────────────────────────
+  # ============================================================
+  # JOB 3 - Frontend validation
+  # ============================================================
   validate-frontend:
     name: Validate Frontend
-    needs: detect-changes
+
+    needs:
+      - detect-changes
 
     if: |
       needs.detect-changes.outputs.frontend_changed == 'true' ||
@@ -257,16 +379,115 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
-        run: cd frontend && npm ci
+        run: |
+          cd frontend
+          npm ci
 
-      - name: Run tests
-        run: cd frontend && npm test
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          npm test
 
-      - name: Lint
-        run: cd frontend && npm run lint
+      - name: Lint frontend
+        run: |
+          cd frontend
+          npm run lint
 
-      - name: Build
-        run: cd frontend && npm run build
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
 
       - name: Security audit
-        run: cd frontend && npm audit
+        run: |
+          cd frontend
+          npm audit
+
+
+  # ============================================================
+  # JOB 4 - Final CI Gate
+  #
+  # This becomes the SINGLE required GitHub branch protection
+  # check.
+  #
+  # Backend/frontend validation can legitimately be "skipped"
+  # when that component did not change.
+  #
+  # Failures are NOT accepted.
+  # ============================================================
+  ci-gate:
+    name: CI Gate
+
+    needs:
+      - detect-changes
+      - validate-backend
+      - validate-frontend
+
+    if: always()
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Show CI results
+        run: |
+          echo "============================================"
+          echo " NovaHub CI Results"
+          echo "============================================"
+          echo "Change detection     : ${{ needs.detect-changes.result }}"
+          echo "Backend validation   : ${{ needs.validate-backend.result }}"
+          echo "Frontend validation  : ${{ needs.validate-frontend.result }}"
+          echo "============================================"
+
+      - name: Verify change detection
+        run: |
+          if [ "${{ needs.detect-changes.result }}" != "success" ]; then
+            echo "ERROR: Change detection failed."
+            exit 1
+          fi
+
+          echo "Change detection passed."
+
+      - name: Verify backend validation
+        run: |
+          BACKEND_RESULT="${{ needs.validate-backend.result }}"
+
+          echo "Backend result: $BACKEND_RESULT"
+
+          if [ "$BACKEND_RESULT" != "success" ] \
+          && [ "$BACKEND_RESULT" != "skipped" ]; then
+
+            echo "ERROR: Backend validation failed."
+            exit 1
+          fi
+
+          if [ "$BACKEND_RESULT" = "skipped" ]; then
+            echo "Backend validation skipped because backend did not change."
+          else
+            echo "Backend validation passed."
+          fi
+
+      - name: Verify frontend validation
+        run: |
+          FRONTEND_RESULT="${{ needs.validate-frontend.result }}"
+
+          echo "Frontend result: $FRONTEND_RESULT"
+
+          if [ "$FRONTEND_RESULT" != "success" ] \
+          && [ "$FRONTEND_RESULT" != "skipped" ]; then
+
+            echo "ERROR: Frontend validation failed."
+            exit 1
+          fi
+
+          if [ "$FRONTEND_RESULT" = "skipped" ]; then
+            echo "Frontend validation skipped because frontend did not change."
+          else
+            echo "Frontend validation passed."
+          fi
+
+      - name: CI passed
+        run: |
+          echo "============================================"
+          echo " NovaHub CI PASSED"
+          echo " All required validations succeeded."
+          echo "============================================"
