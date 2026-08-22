@@ -221,28 +221,29 @@ export const getWorkspaceAiSummary = async (req, res) => {
         }
       }
 
-      if (state?.lastReadMessage && state?.lastReadMessageCreatedAt) {
-        const missedFilter = {
-          workspace: workspaceId,
-          $or: [
-            { createdAt: { $gt: state.lastReadMessageCreatedAt } },
-            {
-              createdAt: state.lastReadMessageCreatedAt,
-              _id: { $gt: state.lastReadMessage },
-            },
-          ],
-        };
+      const hasCheckpoint = Boolean(
+        state?.lastReadMessage && state?.lastReadMessageCreatedAt
+      );
 
-        totalEligibleMessages = await Message.countDocuments(missedFilter);
+      const missedFilter = hasCheckpoint
+        ? {
+            workspace: workspaceId,
+            $or: [
+              { createdAt: { $gt: state.lastReadMessageCreatedAt } },
+              {
+                createdAt: state.lastReadMessageCreatedAt,
+                _id: { $gt: state.lastReadMessage },
+              },
+            ],
+          }
+        : { workspace: workspaceId };
 
-        messages = await Message.find(missedFilter)
-          .populate("sender", "name")
-          .sort({ createdAt: 1, _id: 1 })
-          .limit(maxMessages);
-      } else {
-        totalEligibleMessages = 0;
-        messages = [];
-      }
+      totalEligibleMessages = await Message.countDocuments(missedFilter);
+
+      messages = await Message.find(missedFilter)
+        .populate("sender", "name")
+        .sort({ createdAt: 1, _id: 1 })
+        .limit(maxMessages);
     } else if (scope === "recent") {
       totalEligibleMessages = await Message.countDocuments({
         workspace: workspaceId,
