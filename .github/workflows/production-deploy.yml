@@ -1,100 +1,71 @@
-name: Production Deployment
+name: CI Validation
 
 on:
+  pull_request:
+    branches:
+      - main
+
   push:
     branches:
       - main
+
   workflow_dispatch:
     inputs:
       component:
-        description: 'Component to deploy (overrides path detection)'
+        description: "Component to validate"
         type: choice
         required: true
-        default: 'both'
+        default: "both"
         options:
           - both
           - backend
           - frontend
 
 concurrency:
-  group: novahub-production
-  cancel-in-progress: false
+  group: novahub-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
-# ─── Notes ─────────────────────────────────────────────────────────────────
-#
-# Change detection (push events)
-#   Uses the full push range:  github.event.before → github.sha
-#   fetch-depth: 0 is required so that git history for all commits in the
-#   push is available.  HEAD~1 is NOT used; a multi-commit push would cause
-#   HEAD~1 to miss commits earlier in the range.
-#
-# Documentation inside app directories
-#   *.md files anywhere under backend/ or frontend/ are excluded from
-#   deployment triggers.  Only non-markdown application files trigger tests
-#   and deployments.
-#
-# Case E — deployment-file-only change
-#   When only .github/workflows/production-deploy.yml changes, validate-backend
-#   and validate-frontend both run as a correctness check of the updated
-#   workflow.  Railway and Vercel are NOT redeployed because the application
-#   code is unchanged.
-#
-# deploy-frontend skipped-needs safety
-#   deploy-frontend lists deploy-backend in its needs: array so that GitHub
-#   establishes a dependency edge and reports the job graph correctly.
-#   always() in the if: condition prevents GitHub from auto-skipping the job
-#   merely because deploy-backend was skipped (frontend-only case).
-#   The explicit result checks enforce the real safety rules.
-# ───────────────────────────────────────────────────────────────────────────
-
 jobs:
 
-  # ══════════════════════════════════════════════════════════════════════════
-  # JOB 1 · detect-changes
-  #
-  # Emits backend_changed, frontend_changed, deployment_changed outputs.
-  #
-  # For workflow_dispatch the outputs are derived directly from inputs.component
-  # so that downstream if: conditions can remain uniform across both event types.
-  # ══════════════════════════════════════════════════════════════════════════
+  # ─────────────────────────────────────────────────────────────
+  # Detect which application components changed
+  # ─────────────────────────────────────────────────────────────
   detect-changes:
     name: Detect Changed Components
     runs-on: ubuntu-latest
+
     outputs:
-      backend_changed:    ${{ steps.changes.outputs.backend_changed }}
-      frontend_changed:   ${{ steps.changes.outputs.frontend_changed }}
-      deployment_changed: ${{ steps.changes.outputs.deployment_changed }}
-      anything_to_deploy: ${{ steps.changes.outputs.anything_to_deploy }}
+      backend_changed: ${{ steps.changes.outputs.backend_changed }}
+      frontend_changed: ${{ steps.changes.outputs.frontend_changed }}
+      workflow_changed: ${{ steps.changes.outputs.workflow_changed }}
+
     steps:
-      # fetch-depth: 0 is required to make github.event.before reachable.
-      # With fetch-depth: 2 or 1 the BEFORE commit may not be in local history.
-      - name: Checkout repository (full history)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Classify changed paths
+      - name: Detect changed files
         id: changes
+        shell: bash
         run: |
           set -euo pipefail
-          ZERO_SHA="0000000000000000000000000000000000000000"
 
-          # ── workflow_dispatch: derive outputs from the explicit component input
-          # Detection is bypassed.  outputs are set to reflect exactly which
-          # components the operator selected.
+          # Manual run
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+
             COMPONENT="${{ inputs.component }}"
-            echo "workflow_dispatch — component=$COMPONENT — bypassing path detection."
+
             case "$COMPONENT" in
               both)
-                echo "backend_changed=true"  >> "$GITHUB_OUTPUT"
+                echo "backend_changed=true" >> "$GITHUB_OUTPUT"
                 echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
                 ;;
               backend)
-                echo "backend_changed=true"   >> "$GITHUB_OUTPUT"
+                echo "backend_changed=true" >> "$GITHUB_OUTPUT"
                 echo "frontend_changed=false" >> "$GITHUB_OUTPUT"
                 ;;
               frontend)
@@ -102,128 +73,80 @@ jobs:
                 echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
                 ;;
             esac
-            echo "deployment_changed=false" >> "$GITHUB_OUTPUT"
-            echo "anything_to_deploy=true"  >> "$GITHUB_OUTPUT"
+
+            echo "workflow_changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # ── push event: diff the FULL push range ──────────────────────────
-          # github.event.before is the SHA immediately before the push.
-          # github.sha        is the HEAD of the push (last commit).
-          # This correctly covers multi-commit pushes, including fast-forward
-          # merges of dev into main where multiple commits arrive at once.
-          BEFORE="${{ github.event.before }}"
-          AFTER="${{ github.sha }}"
-
-          echo "Push range: $BEFORE → $AFTER"
-
-          # New-branch / force-push guard: BEFORE is all zeros when a branch
-          # is created for the first time or the history was rewritten.
-          # Treat everything as changed (safe default).
-          if [ "$BEFORE" = "$ZERO_SHA" ]; then
-            echo "BEFORE SHA is all zeros (new branch or initial push)."
-            echo "Treating all components as changed."
-            echo "backend_changed=true"    >> "$GITHUB_OUTPUT"
-            echo "frontend_changed=true"   >> "$GITHUB_OUTPUT"
-            echo "deployment_changed=true" >> "$GITHUB_OUTPUT"
-            echo "anything_to_deploy=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Pull request
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BEFORE="${{ github.event.pull_request.base.sha }}"
+            AFTER="${{ github.event.pull_request.head.sha }}"
+          else
+            # Push to main
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.sha }}"
           fi
 
-          # Full file list across ALL commits in the push.
+          echo "Checking changes:"
+          echo "$BEFORE -> $AFTER"
+
           CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER")
 
-          echo "Files changed across push range:"
+          echo "Changed files:"
           echo "$CHANGED_FILES"
-          echo "─────────────────────────────────────────────────────────────"
 
-          # ── Backend application files ──────────────────────────────────────
-          # Include  : any file under backend/
-          # Exclude  : *.md  (documentation)
-          # Exclude  : backend/docs/** (documentation sub-directory)
+          BACKEND_CHANGED=false
+          FRONTEND_CHANGED=false
+          WORKFLOW_CHANGED=false
+
           BACKEND_APP=$(echo "$CHANGED_FILES" \
             | grep -E '^backend/' \
             | grep -vE '(\.md$|^backend/docs/)' \
             || true)
 
-          # ── Frontend application files ─────────────────────────────────────
-          # Include  : any file under frontend/
-          # Exclude  : *.md  (documentation)
-          # Exclude  : frontend/docs/** (documentation sub-directory)
           FRONTEND_APP=$(echo "$CHANGED_FILES" \
             | grep -E '^frontend/' \
             | grep -vE '(\.md$|^frontend/docs/)' \
             || true)
 
-          # ── Deployment workflow file ───────────────────────────────────────
-          DEPLOY_FILE=$(echo "$CHANGED_FILES" \
-            | grep -xF '.github/workflows/production-deploy.yml' \
-            || true)
-
-          # ── Emit outputs ───────────────────────────────────────────────────
-          BACKEND_CHANGED=false
-          FRONTEND_CHANGED=false
-          DEPLOYMENT_CHANGED=false
-
           if [ -n "$BACKEND_APP" ]; then
             BACKEND_CHANGED=true
-            echo "Backend application files changed:"
-            echo "$BACKEND_APP"
           fi
 
           if [ -n "$FRONTEND_APP" ]; then
             FRONTEND_CHANGED=true
-            echo "Frontend application files changed:"
-            echo "$FRONTEND_APP"
           fi
 
-          if [ -n "$DEPLOY_FILE" ]; then
-            DEPLOYMENT_CHANGED=true
-            echo "Deployment workflow file changed."
+          if echo "$CHANGED_FILES" \
+            | grep -q '^\.github/workflows/production-deploy\.yml$'; then
+            WORKFLOW_CHANGED=true
           fi
 
-          echo "backend_changed=$BACKEND_CHANGED"       >> "$GITHUB_OUTPUT"
-          echo "frontend_changed=$FRONTEND_CHANGED"     >> "$GITHUB_OUTPUT"
-          echo "deployment_changed=$DEPLOYMENT_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "backend_changed=$BACKEND_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "frontend_changed=$FRONTEND_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "workflow_changed=$WORKFLOW_CHANGED" >> "$GITHUB_OUTPUT"
 
-          if [ "$BACKEND_CHANGED" = "true" ] \
-          || [ "$FRONTEND_CHANGED" = "true" ] \
-          || [ "$DEPLOYMENT_CHANGED" = "true" ]; then
-            echo "anything_to_deploy=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "anything_to_deploy=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Detection summary
+      - name: Change summary
         run: |
-          echo "════════════════════════════════════════════"
-          echo " Change Detection Summary"
-          echo "════════════════════════════════════════════"
-          echo " backend_changed    : ${{ steps.changes.outputs.backend_changed }}"
-          echo " frontend_changed   : ${{ steps.changes.outputs.frontend_changed }}"
-          echo " deployment_changed : ${{ steps.changes.outputs.deployment_changed }}"
-          echo " anything_to_deploy : ${{ steps.changes.outputs.anything_to_deploy }}"
-          if [ "${{ steps.changes.outputs.anything_to_deploy }}" = "false" ]; then
-            echo ""
-            echo " → Documentation-only push. Nothing to deploy. ✓"
-          fi
-          echo "════════════════════════════════════════════"
+          echo "Backend changed  : ${{ steps.changes.outputs.backend_changed }}"
+          echo "Frontend changed : ${{ steps.changes.outputs.frontend_changed }}"
+          echo "Workflow changed : ${{ steps.changes.outputs.workflow_changed }}"
 
-  # ══════════════════════════════════════════════════════════════════════════
-  # JOB 2 · validate-backend
-  #
-  # Runs when:
-  #   backend_changed=true   (backend app files changed — push or dispatch)
-  #   OR push + deployment_changed=true  (Case E: validate workflow change)
-  # ══════════════════════════════════════════════════════════════════════════
+
+  # ─────────────────────────────────────────────────────────────
+  # Backend CI
+  # ─────────────────────────────────────────────────────────────
   validate-backend:
     name: Validate Backend
     needs: detect-changes
-    runs-on: ubuntu-latest
+
     if: |
       needs.detect-changes.outputs.backend_changed == 'true' ||
-      (github.event_name == 'push' &&
-       needs.detect-changes.outputs.deployment_changed == 'true')
+      needs.detect-changes.outputs.workflow_changed == 'true'
+
+    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -231,14 +154,14 @@ jobs:
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: npm
           cache-dependency-path: backend/package-lock.json
 
       - name: Install backend dependencies
         run: cd backend && npm ci
 
-      - name: Syntax check entry points
+      - name: Syntax check
         run: |
           cd backend
           node --check server.js
@@ -253,63 +176,75 @@ jobs:
       - name: AI Summary integration tests
         run: cd backend && npm run test:integration:aisummary:docker
 
-      - name: Invitation integration tests (DB + Socket.IO)
+      - name: Invitation integration tests
         run: cd backend && npm run test:integration:invitations:all:docker
 
-      - name: Role/Plan/Entitlements integration tests
-        # rolePlanEntitlements has no dedicated docker runner script in package.json.
-        # We orchestrate the disposable replica set inline, mirroring the pattern
-        # used by the other runner scripts in backend/scripts/.
+      - name: Role / Plan / Entitlements integration tests
         run: |
           cd backend
+
           COMPOSE_FILE="tests/integration/docker-compose.yml"
           COMPOSE_PROJECT="novahub-entitlement-tests"
           DB_NAME="novahub_entitlements_test"
           TEST_URI="mongodb://127.0.0.1:27019/${DB_NAME}?replicaSet=rs0&directConnection=true"
 
           cleanup() {
-            docker compose -f "$COMPOSE_FILE" --project-name "$COMPOSE_PROJECT" \
+            docker compose \
+              -f "$COMPOSE_FILE" \
+              --project-name "$COMPOSE_PROJECT" \
               down --volumes --remove-orphans || true
           }
+
           trap cleanup EXIT
 
-          docker compose -f "$COMPOSE_FILE" --project-name "$COMPOSE_PROJECT" \
+          docker compose \
+            -f "$COMPOSE_FILE" \
+            --project-name "$COMPOSE_PROJECT" \
             up --detach --wait --wait-timeout 120
 
-          docker compose -f "$COMPOSE_FILE" --project-name "$COMPOSE_PROJECT" \
-            exec -T mongo mongosh --quiet --port 27019 --eval \
+          docker compose \
+            -f "$COMPOSE_FILE" \
+            --project-name "$COMPOSE_PROJECT" \
+            exec -T mongo \
+            mongosh --quiet --port 27019 --eval \
             'try { rs.status() } catch (e) { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "localhost:27019" }] }) }'
 
           for attempt in $(seq 1 60); do
-            if docker compose -f "$COMPOSE_FILE" --project-name "$COMPOSE_PROJECT" \
-                exec -T mongo mongosh --quiet --port 27019 \
-                --eval 'quit(db.hello().isWritablePrimary ? 0 : 2)' 2>/dev/null; then
+            if docker compose \
+              -f "$COMPOSE_FILE" \
+              --project-name "$COMPOSE_PROJECT" \
+              exec -T mongo \
+              mongosh --quiet --port 27019 \
+              --eval 'quit(db.hello().isWritablePrimary ? 0 : 2)' \
+              2>/dev/null; then
+
               echo "Replica-set primary is ready."
               break
             fi
+
             sleep 1
           done
 
           TEST_MONGO_URI="$TEST_URI" \
           CONFIRM_ENTITLEMENTS_TEST_DATABASE="$DB_NAME" \
-          node --test --test-concurrency=1 \
+          node --test \
+            --test-concurrency=1 \
             tests/integration/rolePlanEntitlements.integration.test.js
 
-  # ══════════════════════════════════════════════════════════════════════════
-  # JOB 3 · validate-frontend
-  #
-  # Runs when:
-  #   frontend_changed=true  (frontend app files changed — push or dispatch)
-  #   OR push + deployment_changed=true  (Case E: validate workflow change)
-  # ══════════════════════════════════════════════════════════════════════════
+
+  # ─────────────────────────────────────────────────────────────
+  # Frontend CI
+  # ─────────────────────────────────────────────────────────────
   validate-frontend:
     name: Validate Frontend
     needs: detect-changes
-    runs-on: ubuntu-latest
+
     if: |
       needs.detect-changes.outputs.frontend_changed == 'true' ||
-      (github.event_name == 'push' &&
-       needs.detect-changes.outputs.deployment_changed == 'true')
+      needs.detect-changes.outputs.workflow_changed == 'true'
+
+    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -317,8 +252,8 @@ jobs:
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
@@ -335,182 +270,3 @@ jobs:
 
       - name: Security audit
         run: cd frontend && npm audit
-
-  # ══════════════════════════════════════════════════════════════════════════
-  # JOB 4 · deploy-backend
-  #
-  # Runs when backend_changed=true.
-  # deployment_changed alone does NOT trigger a Railway deployment.
-  # Implicitly blocked if validate-backend failed (GitHub default behavior).
-  # ══════════════════════════════════════════════════════════════════════════
-  deploy-backend:
-    name: Deploy Backend (Railway)
-    needs:
-      - detect-changes
-      - validate-backend
-    runs-on: ubuntu-latest
-    if: needs.detect-changes.outputs.backend_changed == 'true'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          RAILWAY_SERVICE="${{ vars.RAILWAY_SERVICE || 'backend' }}"
-          RAILWAY_ENVIRONMENT="${{ vars.RAILWAY_ENVIRONMENT || 'production' }}"
-          railway up \
-            --service "$RAILWAY_SERVICE" \
-            --environment "$RAILWAY_ENVIRONMENT" \
-            --ci
-
-      - name: Verify backend health
-        env:
-          BACKEND_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL || 'https://novahub-production.up.railway.app/' }}
-        run: |
-          echo "Polling $BACKEND_HEALTH_URL ..."
-          MAX_RETRIES=30
-          DELAY=10
-          SUCCESS=0
-
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $i / $MAX_RETRIES ..."
-            HTTP_CODE=$(curl -s -o /tmp/backend_health.txt \
-              -w "%{http_code}" --max-time 15 \
-              "$BACKEND_HEALTH_URL" || true)
-
-            if [ "$HTTP_CODE" = "200" ]; then
-              if grep -q "NovaHub API is running" /tmp/backend_health.txt; then
-                echo "Backend health check PASSED."
-                SUCCESS=1
-                break
-              fi
-            fi
-
-            echo "Not healthy yet (HTTP $HTTP_CODE). Waiting ${DELAY}s ..."
-            sleep $DELAY
-          done
-
-          if [ "$SUCCESS" -ne 1 ]; then
-            echo "ERROR: Backend health check failed after $MAX_RETRIES attempts."
-            cat /tmp/backend_health.txt || true
-            exit 1
-          fi
-
-  # ══════════════════════════════════════════════════════════════════════════
-  # JOB 5 · deploy-frontend
-  #
-  # SAFETY RULES (all must hold):
-  #
-  #   (1) frontend_changed=true              — frontend was actually requested
-  #   (2) validate-frontend.result=success   — frontend tests/build passed
-  #   (3) deploy-backend.result ∈ {success, skipped}
-  #                                          — backend did not fail
-  #   (4) if backend_changed=true, then deploy-backend.result=success
-  #                                          — when backend is in the same
-  #                                            release, it must be healthy
-  #                                            before frontend deploys
-  #
-  # WHY always() IS REQUIRED:
-  #   deploy-backend is listed in needs: so that GitHub shows the correct
-  #   dependency edge in the job graph and so we can read its .result.
-  #   Without always(), GitHub auto-skips this job when deploy-backend is
-  #   skipped (frontend-only case), which is wrong.
-  #   always() makes GitHub evaluate the if: condition regardless of the
-  #   status of upstream needs, then our explicit checks enforce correctness.
-  #
-  # TRUTH TABLE for deploy-frontend:
-  #   frontend-only push:
-  #     validate-frontend=success, deploy-backend=skipped, backend_changed=false
-  #     → rules (1)✓ (2)✓ (3)✓ (4 n/a)✓  → RUNS
-  #   backend+frontend push, backend success:
-  #     validate-frontend=success, deploy-backend=success, backend_changed=true
-  #     → rules (1)✓ (2)✓ (3)✓ (4)✓      → RUNS
-  #   backend+frontend push, backend failure:
-  #     deploy-backend=failure
-  #     → rule (3) fails                   → SKIPPED
-  #   backend+frontend push, validate-backend failure:
-  #     deploy-backend=skipped, backend_changed=true
-  #     → rule (4) fails (skipped≠success) → SKIPPED
-  #   backend+frontend push, validate-frontend failure:
-  #     validate-frontend=failure
-  #     → rule (2) fails                   → SKIPPED
-  #   backend-only push:
-  #     validate-frontend=skipped (frontend not needed)
-  #     → rule (2) fails (skipped≠success) → SKIPPED
-  #   manual backend:
-  #     frontend_changed=false (derived from component=backend)
-  #     → rule (1) fails                   → SKIPPED
-  #   manual frontend:
-  #     validate-frontend=success, deploy-backend=skipped, backend_changed=false
-  #     → rules (1)✓ (2)✓ (3)✓ (4 n/a)✓  → RUNS
-  #   manual both, backend success:
-  #     all rules satisfied                → RUNS
-  # ══════════════════════════════════════════════════════════════════════════
-  deploy-frontend:
-    name: Deploy Frontend (Vercel)
-    needs:
-      - detect-changes
-      - validate-frontend
-      - deploy-backend
-    runs-on: ubuntu-latest
-    if: |
-      always() &&
-      needs.detect-changes.outputs.frontend_changed == 'true' &&
-      needs.validate-frontend.result == 'success' &&
-      (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') &&
-      (needs.detect-changes.outputs.backend_changed != 'true' || needs.deploy-backend.result == 'success')
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install Vercel CLI
-        run: npm install -g vercel
-
-      - name: Deploy to Vercel
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          cd frontend
-          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          vercel build --prod --token="$VERCEL_TOKEN"
-          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
-
-      - name: Verify frontend health
-        env:
-          FRONTEND_HEALTH_URL: ${{ vars.FRONTEND_HEALTH_URL || 'https://nova-hub-sage.vercel.app/' }}
-        run: |
-          echo "Polling $FRONTEND_HEALTH_URL ..."
-          MAX_RETRIES=15
-          DELAY=5
-          SUCCESS=0
-
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $i / $MAX_RETRIES ..."
-            HTTP_CODE=$(curl -s -o /tmp/frontend_health.txt \
-              -w "%{http_code}" --max-time 15 \
-              "$FRONTEND_HEALTH_URL" || true)
-
-            if [ "$HTTP_CODE" = "200" ]; then
-              if grep -q "NovaHub" /tmp/frontend_health.txt; then
-                echo "Frontend health check PASSED."
-                SUCCESS=1
-                break
-              fi
-            fi
-
-            echo "Not available yet (HTTP $HTTP_CODE). Waiting ${DELAY}s ..."
-            sleep $DELAY
-          done
-
-          if [ "$SUCCESS" -ne 1 ]; then
-            echo "ERROR: Frontend health check failed after $MAX_RETRIES attempts."
-            cat /tmp/frontend_health.txt || true
-            exit 1
-          fi
