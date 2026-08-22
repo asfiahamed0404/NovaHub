@@ -19,11 +19,14 @@ export const registerUser = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create new user
+    // Create new user - explicitly assign only allowed public registration fields
+    // role and plan are strictly defaulted by schema and cannot be overridden via req.body
     const user = new User({
       name,
       email,
       password: hashedPassword,
+      role: "user",
+      plan: "free",
     });
 
     await user.save();
@@ -37,9 +40,10 @@ export const registerUser = async (req, res) => {
         email: user.email,
         status: user.status,
         avatar: user.avatar,
+        role: user.role || "user",
+        plan: user.plan || "free",
       },
     });
-
   } catch (error) {
     res.status(500).json({
       message: error.message,
@@ -78,9 +82,10 @@ export const loginUser = async (req, res) => {
         email: user.email,
         status: user.status,
         avatar: user.avatar,
+        role: user.role || "user",
+        plan: user.plan || "free",
       },
     });
-
   } catch (error) {
     res.status(500).json({
       message: error.message,
@@ -96,6 +101,8 @@ export const getMe = async (req, res) => {
       email: req.user.email,
       status: req.user.status,
       avatar: req.user.avatar,
+      role: req.user.role || "user",
+      plan: req.user.plan || "free",
       createdAt: req.user.createdAt,
     },
   });

@@ -152,6 +152,16 @@ function MonitorIcon({ className }) {
   );
 }
 
+function SparklesIcon({ className }) {
+  return (
+    <IconFrame className={className}>
+      <path d="M12 3 L13.5 8.5 L19 10 L13.5 11.5 L12 17 L10.5 11.5 L5 10 L10.5 8.5 Z" />
+      <path d="M19 3 L19.8 5.2 L22 6 L19.8 6.8 L19 9 L18.2 6.8 L16 6 L18.2 5.2 Z" />
+      <path d="M5 17 L5.6 18.9 L7.5 19.5 L5.6 20.1 L5 22 L4.4 20.1 L2.5 19.5 L4.4 18.9 Z" />
+    </IconFrame>
+  );
+}
+
 export {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -165,6 +175,7 @@ export {
   MoonIcon,
   PlusIcon,
   SendIcon,
+  SparklesIcon,
   SunIcon,
   UsersIcon,
 };

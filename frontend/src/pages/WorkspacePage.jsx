@@ -10,6 +10,8 @@ import {
 import InviteWorkspaceDialog from "../components/InviteWorkspaceDialog.jsx";
 import ThemeSelector from "../components/ThemeSelector.jsx";
 import WorkspaceMessages from "../components/WorkspaceMessages.jsx";
+import AiSummaryTrigger from "../components/AiSummaryTrigger.jsx";
+import { useLiveReadTracker } from "../hooks/useLiveReadTracker.js";
 
 import api from "../api/axios.js";
 
@@ -41,8 +43,10 @@ function WorkspacePage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
   
-  const { user } = useAuth();
-  //const isCreator = user.id === workspace?.createdBy?._id;
+  const { user, logout } = useAuth();
+
+  const { missedCount, fetchReadState, onMessageActivity } =
+    useLiveReadTracker({ workspaceId, logout });
 
   const [workspace, setWorkspace] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -199,6 +203,12 @@ function WorkspacePage() {
             </div>
 
             <div className="flex shrink-0 flex-wrap gap-2 self-start">
+              <AiSummaryTrigger
+                workspaceId={workspaceId}
+                missedCount={missedCount}
+                onReadStateRefresh={fetchReadState}
+              />
+
               <button
                 type="button"
                 onClick={() => setIsInviteDialogOpen(true)}
@@ -242,6 +252,7 @@ function WorkspacePage() {
           <WorkspaceMessages
             workspaceId={workspaceId}
             onWorkspaceUpdated={setWorkspace}
+            onMessageActivity={onMessageActivity}
           />
 
           <aside

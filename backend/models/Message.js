@@ -44,6 +44,15 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
+// Compound index for canonical workspace message ordering.
+// Supports: latest-message lookup, missedCount calculation,
+// and future Catch Me Up range queries.
+// Canonical order: (workspace, createdAt ASC, _id ASC)
+messageSchema.index(
+  { workspace: 1, createdAt: 1, _id: 1 },
+  { name: "workspace_createdAt_id" }
+);
+
 const Message = mongoose.model("Message", messageSchema);
 
 export default Message;

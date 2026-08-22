@@ -32,7 +32,7 @@ function mergeMessages(currentMessages,incomingMessages) {
   );
 }
 
-function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
+function WorkspaceMessages({workspaceId,onWorkspaceUpdated,onMessageActivity,}) {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState([]);
@@ -110,6 +110,15 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
           false;
 
         setMessages(response.data.messages);
+        if (
+          Array.isArray(response.data.messages) &&
+          response.data.messages.length > 0 &&
+          typeof onMessageActivity === "function"
+        ) {
+          onMessageActivity(
+            response.data.messages[response.data.messages.length - 1]
+          );
+        }
       })
       .catch((error) => {
         if (ignore) {
@@ -130,7 +139,7 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
     return () => {
       ignore = true;
     };
-  }, [workspaceId]);
+  }, [workspaceId, onMessageActivity]);
 
   useEffect(() => {
     const socket = createSocket();
@@ -201,6 +210,10 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
           newMessage,
         ];
       });
+
+      if (typeof onMessageActivity === "function") {
+        onMessageActivity(newMessage);
+      }
     };
 
     const handleWorkspaceUpdated = (
@@ -390,6 +403,7 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
     onWorkspaceUpdated,
     fetchMessages,
     fetchCurrentWorkspace,
+    onMessageActivity,
   ]);
 
   useEffect(() => {
@@ -456,6 +470,13 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,}) {
       });
 
       setContent("");
+
+      if (
+        response.data?.chatMessage &&
+        typeof onMessageActivity === "function"
+      ) {
+        onMessageActivity(response.data.chatMessage);
+      }
     } catch (error) {
       setSendError(
         error.response?.data?.message ||
