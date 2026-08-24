@@ -1,7 +1,9 @@
 import {
+  useCallback,
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -13,44 +15,56 @@ function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const logout = useCallback(() => {
+    localStorage.removeItem("novahub_token");
+    setUser(null);
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    const token = localStorage.getItem("novahub_token");
+
+    if (!token) {
+      setUser(null);
+      return null;
+    }
+
+    try {
+      const response = await api.get("/auth/me");
+      const refreshedUser = response.data.user;
+
+      setUser(refreshedUser);
+      return refreshedUser;
+    } catch {
+      logout();
+      return null;
+    }
+  }, [logout]);
+
   useEffect(() => {
     const restoreUser = async () => {
-      const token = localStorage.getItem("novahub_token");
-
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
-
       try {
-        const response = await api.get("/auth/me");
-
-        setUser(response.data.user);
-      } catch {
-        localStorage.removeItem("novahub_token");
-        setUser(null);
+        await refreshUser();
       } finally {
         setIsLoading(false);
       }
     };
 
     restoreUser();
-  }, []);
+  }, [refreshUser]);
 
-  const logout = () => {
-    localStorage.removeItem("novahub_token");
-    setUser(null);
-  };
+  const contextValue = useMemo(
+    () => ({
+      user,
+      setUser,
+      isLoading,
+      logout,
+      refreshUser,
+    }),
+    [isLoading, logout, refreshUser, user]
+  );
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        setUser,
-        isLoading,
-        logout,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

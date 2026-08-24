@@ -603,6 +603,158 @@ a {
 }
 
 /* =========================================
+   Platform Admin Console
+   ========================================= */
+
+.admin-sidebar {
+  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.admin-skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 70;
+  transform: translateY(-200%);
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-foreground);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.admin-skip-link:focus {
+  transform: translateY(0);
+}
+
+.admin-nav-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.625rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--color-foreground-muted);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.admin-nav-link:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+
+.admin-nav-link-active {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.admin-nav-indicator {
+  width: 0.375rem;
+  height: 0.375rem;
+  flex: none;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.admin-nav-link-active .admin-nav-indicator {
+  opacity: 1;
+  box-shadow: 0 0 0 4px var(--color-focus-soft);
+}
+
+.admin-badge {
+  display: inline-flex;
+  min-height: 1.625rem;
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-foreground-soft);
+  padding: 0.1875rem 0.5625rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-transform: capitalize;
+}
+
+.admin-badge-accent {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.admin-badge-success {
+  border-color: var(--color-success-border);
+  background: var(--color-success-surface);
+  color: var(--color-success-foreground);
+}
+
+.admin-badge-danger {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-surface);
+  color: var(--color-danger-foreground);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--color-foreground-soft);
+  font-size: 0.875rem;
+}
+
+.admin-table th {
+  background: var(--color-surface-soft);
+  color: var(--color-foreground-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.admin-table th,
+.admin-table td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.875rem 1rem;
+  vertical-align: top;
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--color-surface-hover);
+}
+
+.admin-progress-track {
+  height: 0.4375rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-skeleton);
+}
+
+.admin-progress-value {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transition: width var(--transition-fast);
+}
+
+/* =========================================
    AI Summary UI
    ========================================= */
 
