@@ -110,8 +110,8 @@ const toolAction = (tool, argumentsValue = {}) =>
     arguments: argumentsValue,
   });
 
-const finalAction = (answer) =>
-  JSON.stringify({ action: "final", answer });
+const finalAction = (answer, memoryProposal = undefined) =>
+  JSON.stringify({ action: "final", answer, memoryProposal });
 
 const setProviderSequence = (responses, calls = []) => {
   let responseIndex = 0;
@@ -205,6 +205,7 @@ test("agent can choose get_workspace_info", async () => {
   assert.deepEqual(result.steps, [
     { step: 1, tool: "get_workspace_info", success: true },
   ]);
+  assert.equal(result.memoryProposal, null);
   assert.match(calls[1].userPrompt, /Agent Alpha/);
 });
 
@@ -225,6 +226,178 @@ test("agent can choose get_recent_messages", async () => {
 
   assert.equal(result.answer, "The release is scheduled Friday.");
   assert.deepEqual(result.toolsUsed, ["get_recent_messages"]);
+});
+
+test("agent final response may contain a grounded memory proposal", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Proposal workspace");
+  const sourceMessage = await makeMessage(
+    workspace,
+    owner,
+    "We decided the production backend will use Railway."
+  );
+  setProviderSequence([
+    toolAction("search_workspace_messages", {
+      query: "Railway",
+    }),
+    finalAction("Production will use Railway.", {
+      type: "decision",
+      content: "  Production backend uses Railway.  ",
+      importance: "high",
+    }),
+  ]);
+
+  const result = await runFor({
+    workspace,
+    user: owner,
+    question: "What did we decide about deployment?",
+  });
+
+  assert.deepEqual(result.memoryProposal, {
+    type: "decision",
+    content: "Production backend uses Railway.",
+    importance: "high",
+    sourceMessageIds: [sourceMessage._id.toString()],
+  });
+  assert.equal(
+    await WorkspaceMemory.countDocuments({ workspace: workspace._id }),
+    0,
+    "runWorkspaceAgent must never persist its own proposal"
+  );
+});
+
+test("agent may return no memory proposal", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "No proposal workspace");
+  await makeMessage(workspace, owner, "John posted a status update.");
+  setProviderSequence([
+    toolAction("get_recent_messages", { limit: 5 }),
+    finalAction("John posted a status update.", null),
+  ]);
+
+  const result = await runFor({ workspace, user: owner });
+
+  assert.equal(result.memoryProposal, null);
+});
+
+test("proposal is discarded when a real observation contains no evidence", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Empty evidence workspace");
+  setProviderSequence([
+    toolAction("search_workspace_messages", {
+      query: "not present",
+    }),
+    finalAction("An unsupported proposal.", {
+      type: "fact",
+      content: "This was not found in workspace evidence.",
+      importance: "normal",
+    }),
+  ]);
+
+  const result = await runFor({ workspace, user: owner });
+
+  assert.equal(result.memoryProposal, null);
+  assert.equal(
+    result.answer,
+    "I couldn't find that in the available workspace context."
+  );
+});
+
+test("LLM-supplied sourceMessageIds are rejected by the strict action schema", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Strict proposal workspace");
+  const sourceMessage = await makeMessage(
+    workspace,
+    owner,
+    "Production uses Railway."
+  );
+  setProviderSequence([
+    toolAction("get_recent_messages", { limit: 5 }),
+    JSON.stringify({
+      action: "final",
+      answer: "Production uses Railway.",
+      memoryProposal: {
+        type: "decision",
+        content: "Production uses Railway.",
+        importance: "high",
+        sourceMessageIds: [sourceMessage._id.toString()],
+      },
+    }),
+  ]);
+
+  await assert.rejects(
+    runFor({ workspace, user: owner }),
+    (error) => error.code === "AGENT_INVALID_MODEL_ACTION"
+  );
+});
+
+test("proposal provenance contains only IDs from bound-workspace observations", async () => {
+  const owner = await makeUser("owner");
+  const workspaceA = await makeWorkspace(owner, "Provenance A");
+  const workspaceB = await makeWorkspace(owner, "Provenance B");
+  const messageA = await makeMessage(
+    workspaceA,
+    owner,
+    "Railway hosts workspace A production."
+  );
+  const messageB = await makeMessage(
+    workspaceB,
+    owner,
+    "Railway hosts workspace B production."
+  );
+  setProviderSequence([
+    toolAction("search_workspace_messages", { query: "Railway" }),
+    finalAction("Workspace A production uses Railway.", {
+      type: "decision",
+      content: "Workspace A production uses Railway.",
+      importance: "high",
+    }),
+  ]);
+
+  const result = await runFor({ workspace: workspaceA, user: owner });
+
+  assert.deepEqual(result.memoryProposal.sourceMessageIds, [
+    messageA._id.toString(),
+  ]);
+  assert.equal(
+    result.memoryProposal.sourceMessageIds.includes(
+      messageB._id.toString()
+    ),
+    false
+  );
+});
+
+test("server-derived proposal provenance is bounded to the latest 20 observed IDs", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Bounded provenance");
+  const messages = [];
+
+  for (let index = 1; index <= 25; index += 1) {
+    messages.push(
+      await makeMessage(
+        workspace,
+        owner,
+        `Durable deployment note ${index}.`
+      )
+    );
+  }
+
+  setProviderSequence([
+    toolAction("get_recent_messages", { limit: 25 }),
+    finalAction("Deployment notes were reviewed.", {
+      type: "note",
+      content: "The workspace contains durable deployment notes.",
+      importance: "normal",
+    }),
+  ]);
+
+  const result = await runFor({ workspace, user: owner });
+
+  assert.equal(result.memoryProposal.sourceMessageIds.length, 20);
+  assert.deepEqual(
+    result.memoryProposal.sourceMessageIds,
+    messages.slice(-20).map((message) => message._id.toString())
+  );
 });
 
 test("agent can execute multiple sequential tools before answering", async () => {

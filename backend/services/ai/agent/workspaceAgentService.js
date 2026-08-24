@@ -4,6 +4,12 @@ import mongoose from "mongoose";
 import { z } from "zod";
 
 import { createWorkspaceMcpServer } from "../../../mcp/workspaceMcpServer.js";
+import {
+  MAX_WORKSPACE_MEMORY_CONTENT_CHARS,
+  MAX_WORKSPACE_MEMORY_SOURCE_MESSAGES,
+  WORKSPACE_MEMORY_IMPORTANCE_LEVELS,
+  WORKSPACE_MEMORY_TYPES,
+} from "../../../models/WorkspaceMemory.js";
 import { getAiConfig } from "../../../utils/aiConfig.js";
 import {
   AiProviderError,
@@ -28,10 +34,23 @@ const toolActionSchema = z
   })
   .strict();
 
+const memoryProposalSchema = z
+  .object({
+    type: z.enum(WORKSPACE_MEMORY_TYPES),
+    content: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_WORKSPACE_MEMORY_CONTENT_CHARS),
+    importance: z.enum(WORKSPACE_MEMORY_IMPORTANCE_LEVELS),
+  })
+  .strict();
+
 const finalActionSchema = z
   .object({
     action: z.literal("final"),
     answer: z.string().trim().min(1).max(MAX_AGENT_ANSWER_CHARS),
+    memoryProposal: memoryProposalSchema.nullable().optional(),
   })
   .strict();
 
@@ -51,13 +70,17 @@ SECURITY AND AUTHORITY RULES:
 6. Base the final answer only on the user's question and actual MCP observations. If the requested information is unavailable, say: "${GROUNDED_NOT_FOUND_ANSWER}"
 7. Use tools selectively. Do not request every message unless it is necessary.
 8. Do not provide chain-of-thought or hidden reasoning.
+9. You may optionally suggest one durable workspace memory only when it is directly supported by actual MCP observations. Most answers should use null. Never propose guesses, temporary chatter, or data found only in the user's question.
+10. A memory proposal may contain only type, content, and importance. Never provide workspace, createdBy, userId, role, or sourceMessageIds. The trusted server derives provenance separately.
 
 RESPONSE PROTOCOL:
 Return ONLY one valid JSON object with no markdown or extra text.
 To call a tool:
 {"action":"tool","tool":"an advertised tool name","arguments":{}}
 To finish:
-{"action":"final","answer":"A concise grounded answer."}`;
+{"action":"final","answer":"A concise grounded answer.","memoryProposal":null}
+To suggest durable knowledge after retrieving supporting evidence:
+{"action":"final","answer":"A concise grounded answer.","memoryProposal":{"type":"decision","content":"A concise durable fact supported by observations.","importance":"high"}}`;
 
 let providerOverride = null;
 
@@ -227,6 +250,62 @@ const toolResultHasEvidence = (toolName, result) => {
   return false;
 };
 
+const getObservedSourceMessageIds = (toolName, result) => {
+  const output = result.structuredContent;
+
+  if (!output || typeof output !== "object") {
+    return [];
+  }
+
+  let sourceIds = [];
+
+  if (
+    toolName === "get_recent_messages" ||
+    toolName === "search_workspace_messages"
+  ) {
+    sourceIds = Array.isArray(output.messages)
+      ? output.messages.map((message) => message?.id)
+      : [];
+  } else if (toolName === "list_workspace_memories") {
+    sourceIds = Array.isArray(output.memories)
+      ? output.memories.flatMap((memory) =>
+          Array.isArray(memory?.sourceMessageIds)
+            ? memory.sourceMessageIds
+            : []
+        )
+      : [];
+  } else if (toolName === "get_workspace_memory") {
+    sourceIds = Array.isArray(output.memory?.sourceMessageIds)
+      ? output.memory.sourceMessageIds
+      : [];
+  }
+
+  return sourceIds.filter(
+    (sourceId) =>
+      typeof sourceId === "string" &&
+      mongoose.Types.ObjectId.isValid(sourceId)
+  );
+};
+
+const recordObservedSourceMessageIds = (observedIds, newIds) => {
+  for (const sourceId of newIds) {
+    const existingIndex = observedIds.indexOf(sourceId);
+
+    if (existingIndex !== -1) {
+      observedIds.splice(existingIndex, 1);
+    }
+
+    observedIds.push(sourceId);
+  }
+
+  if (observedIds.length > MAX_WORKSPACE_MEMORY_SOURCE_MESSAGES) {
+    observedIds.splice(
+      0,
+      observedIds.length - MAX_WORKSPACE_MEMORY_SOURCE_MESSAGES
+    );
+  }
+};
+
 const generateAgentAction = async ({
   question,
   toolCatalog,
@@ -331,6 +410,7 @@ export const runWorkspaceAgent = async ({
     const observations = [];
     const steps = [];
     const toolsUsed = [];
+    const observedSourceMessageIds = [];
     let hasGroundingEvidence = false;
 
     for (
@@ -360,6 +440,13 @@ export const runWorkspaceAgent = async ({
             : GROUNDED_NOT_FOUND_ANSWER,
           steps,
           toolsUsed: [...new Set(toolsUsed)],
+          memoryProposal:
+            hasGroundingEvidence && action.memoryProposal
+              ? {
+                  ...action.memoryProposal,
+                  sourceMessageIds: [...observedSourceMessageIds],
+                }
+              : null,
         };
       }
 
@@ -407,8 +494,21 @@ export const runWorkspaceAgent = async ({
         action.tool,
         toolResult
       );
+      const serializedObservation = truncateObservation(
+        toolResult.structuredContent || toolResult.content
+      );
+      const visibleSourceMessageIds = getObservedSourceMessageIds(
+        action.tool,
+        toolResult
+      ).filter((sourceId) =>
+        serializedObservation.includes(sourceId)
+      );
 
       hasGroundingEvidence ||= evidenceFound;
+      recordObservedSourceMessageIds(
+        observedSourceMessageIds,
+        visibleSourceMessageIds
+      );
       toolsUsed.push(action.tool);
       steps.push({
         step,
@@ -420,9 +520,7 @@ export const runWorkspaceAgent = async ({
         tool: action.tool,
         success: true,
         evidenceFound,
-        result: truncateObservation(
-          toolResult.structuredContent || toolResult.content
-        ),
+        result: serializedObservation,
       });
     }
 

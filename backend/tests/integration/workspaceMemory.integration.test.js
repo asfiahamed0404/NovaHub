@@ -262,3 +262,24 @@ test("importance defaults to normal", async () => {
   assert.equal(memory.importance, "normal");
   assert.deepEqual(memory.sourceMessageIds, []);
 });
+
+test("source message provenance is bounded to 20 IDs", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner);
+
+  await assert.rejects(
+    createWorkspaceMemory({
+      workspaceId: workspace._id,
+      type: "note",
+      content: "Too many provenance references.",
+      sourceMessageIds: Array.from(
+        { length: 21 },
+        () => new mongoose.Types.ObjectId()
+      ),
+      createdBy: owner._id,
+    }),
+    (error) =>
+      error instanceof mongoose.Error.ValidationError &&
+      Boolean(error.errors.sourceMessageIds)
+  );
+});

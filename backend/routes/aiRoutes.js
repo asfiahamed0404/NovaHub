@@ -3,6 +3,7 @@ import express from "express";
 import {
   askWorkspaceAgent,
   getWorkspaceAiSummary,
+  saveApprovedWorkspaceMemory,
 } from "../controllers/aiController.js";
 import protect from "../middleware/authMiddleware.js";
 
@@ -11,5 +12,6 @@ const router = express.Router({ mergeParams: true });
 
 router.post("/summary", protect, getWorkspaceAiSummary);
 router.post("/agent", protect, askWorkspaceAgent);
+router.post("/memories", protect, saveApprovedWorkspaceMemory);
 
 export default router;

@@ -1,5 +1,19 @@
 import mongoose from "mongoose";
 
+export const WORKSPACE_MEMORY_TYPES = Object.freeze([
+  "fact",
+  "decision",
+  "task",
+  "note",
+]);
+export const WORKSPACE_MEMORY_IMPORTANCE_LEVELS = Object.freeze([
+  "low",
+  "normal",
+  "high",
+]);
+export const MAX_WORKSPACE_MEMORY_CONTENT_CHARS = 4000;
+export const MAX_WORKSPACE_MEMORY_SOURCE_MESSAGES = 20;
+
 const workspaceMemorySchema = new mongoose.Schema(
   {
     workspace: {
@@ -10,7 +24,7 @@ const workspaceMemorySchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["fact", "decision", "task", "note"],
+      enum: WORKSPACE_MEMORY_TYPES,
       required: true,
     },
 
@@ -18,7 +32,7 @@ const workspaceMemorySchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 4000,
+      maxlength: MAX_WORKSPACE_MEMORY_CONTENT_CHARS,
     },
 
     sourceMessageIds: {
@@ -29,6 +43,11 @@ const workspaceMemorySchema = new mongoose.Schema(
         },
       ],
       default: [],
+      validate: {
+        validator: (sourceIds) =>
+          sourceIds.length <= MAX_WORKSPACE_MEMORY_SOURCE_MESSAGES,
+        message: `A workspace memory can reference at most ${MAX_WORKSPACE_MEMORY_SOURCE_MESSAGES} source messages.`,
+      },
     },
 
     createdBy: {
@@ -39,7 +58,7 @@ const workspaceMemorySchema = new mongoose.Schema(
 
     importance: {
       type: String,
-      enum: ["low", "normal", "high"],
+      enum: WORKSPACE_MEMORY_IMPORTANCE_LEVELS,
       default: "normal",
       required: true,
     },

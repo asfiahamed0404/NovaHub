@@ -46,6 +46,17 @@ const buildAgentResponse = (overrides = {}) => ({
       success: true,
     },
   ],
+  memoryProposal: null,
+  ...overrides,
+});
+
+const SOURCE_MESSAGE_ID = "507f1f77bcf86cd799439011";
+
+const buildMemoryProposal = (overrides = {}) => ({
+  type: "decision",
+  content: "Production backend uses Railway.",
+  importance: "high",
+  sourceMessageIds: [SOURCE_MESSAGE_ID],
   ...overrides,
 });
 
@@ -360,5 +371,287 @@ describe("Ask Nova workspace experience", () => {
     expect(
       screen.getByText("Your session expired. Please sign in again.")
     ).toBeInTheDocument();
+  });
+
+  it("14. renders an answer without a memory proposal normally", async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({ data: buildAgentResponse() });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByText(buildAgentResponse().answer))
+      .toBeInTheDocument();
+    expect(screen.queryByText("Suggested workspace memory"))
+      .not.toBeInTheDocument();
+  });
+
+  it("15. clearly renders a valid proposal as not yet saved", async () => {
+    const user = userEvent.setup();
+    const proposal = buildMemoryProposal();
+    api.post.mockResolvedValue({
+      data: buildAgentResponse({ memoryProposal: proposal }),
+    });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByText("Suggested workspace memory"))
+      .toBeInTheDocument();
+    expect(screen.getByText("Suggestion only — not saved yet."))
+      .toBeInTheDocument();
+    expect(screen.getByText(proposal.content)).toBeInTheDocument();
+    expect(screen.getByText("decision")).toBeInTheDocument();
+    expect(screen.getByText("Importance: high")).toBeInTheDocument();
+    expect(screen.queryByText(SOURCE_MESSAGE_ID))
+      .not.toBeInTheDocument();
+  });
+
+  it("16. Save posts only approved memory fields to the correct endpoint", async () => {
+    const user = userEvent.setup();
+    const proposal = buildMemoryProposal();
+    api.post
+      .mockResolvedValueOnce({
+        data: buildAgentResponse({ memoryProposal: proposal }),
+      })
+      .mockResolvedValueOnce({ data: { memory: { id: "memory-1" } } });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+    await user.click(
+      await screen.findByRole("button", { name: "Save to Memory" })
+    );
+
+    expect(api.post).toHaveBeenNthCalledWith(
+      2,
+      `/workspaces/${WORKSPACE_ID}/ai/memories`,
+      {
+        type: "decision",
+        content: "Production backend uses Railway.",
+        importance: "high",
+        sourceMessageIds: [SOURCE_MESSAGE_ID],
+      }
+    );
+    expect(Object.keys(api.post.mock.calls[1][1]).sort()).toEqual([
+      "content",
+      "importance",
+      "sourceMessageIds",
+      "type",
+    ]);
+  });
+
+  it("17. memory-save loading prevents duplicate requests", async () => {
+    const user = userEvent.setup();
+    let resolveSave;
+    api.post
+      .mockResolvedValueOnce({
+        data: buildAgentResponse({
+          memoryProposal: buildMemoryProposal(),
+        }),
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        })
+      );
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+    const saveButton = await screen.findByRole("button", {
+      name: "Save to Memory",
+    });
+    await user.click(saveButton);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Saving to Memory..." })
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Saving to Memory..." })
+    ).toBeDisabled();
+    expect(api.post).toHaveBeenCalledTimes(2);
+
+    resolveSave({ data: { memory: { id: "memory-1" } } });
+    expect(
+      await screen.findByText("Saved to workspace memory.")
+    ).toBeInTheDocument();
+  });
+
+  it("18. successful save removes the proposal and shows confirmation", async () => {
+    const user = userEvent.setup();
+    api.post
+      .mockResolvedValueOnce({
+        data: buildAgentResponse({
+          memoryProposal: buildMemoryProposal(),
+        }),
+      })
+      .mockResolvedValueOnce({ data: { memory: { id: "memory-1" } } });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+    await user.click(
+      await screen.findByRole("button", { name: "Save to Memory" })
+    );
+
+    expect(
+      await screen.findByText("Saved to workspace memory.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Suggested workspace memory"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save to Memory" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("19. save failure keeps the proposal visible and allows retry", async () => {
+    const user = userEvent.setup();
+    api.post
+      .mockResolvedValueOnce({
+        data: buildAgentResponse({
+          memoryProposal: buildMemoryProposal(),
+        }),
+      })
+      .mockRejectedValueOnce(new Error("private network details"))
+      .mockResolvedValueOnce({ data: { memory: { id: "memory-1" } } });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+    await user.click(
+      await screen.findByRole("button", { name: "Save to Memory" })
+    );
+
+    expect(
+      await screen.findByText(
+        "The memory couldn't be saved right now. Please try again."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Suggested workspace memory"))
+      .toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Save to Memory" })
+    );
+    expect(
+      await screen.findByText("Saved to workspace memory.")
+    ).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledTimes(3);
+  });
+
+  it("20. Dismiss removes the current proposal", async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: buildAgentResponse({
+        memoryProposal: buildMemoryProposal(),
+      }),
+    });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+    await user.click(
+      await screen.findByRole("button", { name: "Dismiss" })
+    );
+
+    expect(screen.queryByText("Suggested workspace memory"))
+      .not.toBeInTheDocument();
+  });
+
+  it("21. Dismiss performs no memory POST", async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: buildAgentResponse({
+        memoryProposal: buildMemoryProposal(),
+      }),
+    });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+    await user.click(
+      await screen.findByRole("button", { name: "Dismiss" })
+    );
+
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenNthCalledWith(
+      1,
+      `/workspaces/${WORKSPACE_ID}/ai/agent`,
+      { question: "What did we decide?" }
+    );
+  });
+
+  it("22. memory proposal content is rendered as inert text", async () => {
+    const user = userEvent.setup();
+    const unsafeContent =
+      '<img src="x" onerror="window.memoryExecuted=true">Railway';
+    const { container } = renderDialog();
+    api.post.mockResolvedValue({
+      data: buildAgentResponse({
+        memoryProposal: buildMemoryProposal({ content: unsafeContent }),
+      }),
+    });
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByText(unsafeContent)).toBeInTheDocument();
+    expect(container.querySelector("[onerror], [onload]")).toBeNull();
+    expect(window.memoryExecuted).toBeUndefined();
+  });
+
+  it("23. malformed proposal data is not rendered or saveable", async () => {
+    const user = userEvent.setup();
+    api.post.mockResolvedValue({
+      data: buildAgentResponse({
+        memoryProposal: {
+          ...buildMemoryProposal(),
+          workspace: "another-workspace",
+          sourceMessageIds: "not-an-array",
+        },
+      }),
+    });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+    await screen.findByText(buildAgentResponse().answer);
+
+    expect(screen.queryByText("Suggested workspace memory"))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save to Memory" }))
+      .not.toBeInTheDocument();
   });
 });

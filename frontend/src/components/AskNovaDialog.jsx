@@ -10,6 +10,15 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { CloseIcon, SparklesIcon } from "./Icons.jsx";
 
 const MAX_QUESTION_CHARS = 2000;
+const MAX_MEMORY_CONTENT_CHARS = 4000;
+const MAX_MEMORY_SOURCE_MESSAGES = 20;
+const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i;
+const MEMORY_TYPES = new Set(["fact", "decision", "task", "note"]);
+const MEMORY_IMPORTANCE_LEVELS = new Set([
+  "low",
+  "normal",
+  "high",
+]);
 
 const PROVIDER_ERROR_MESSAGES = {
   AI_PROVIDER_UNCONFIGURED:
@@ -64,17 +73,77 @@ const getAgentErrorMessage = (error) => {
   return "Nova couldn't answer that right now. Please try again.";
 };
 
+const normalizeMemoryProposal = (proposal) => {
+  if (!proposal || typeof proposal !== "object") {
+    return null;
+  }
+
+  const content =
+    typeof proposal.content === "string"
+      ? proposal.content.trim()
+      : "";
+  const sourceMessageIds = Array.isArray(proposal.sourceMessageIds)
+    ? proposal.sourceMessageIds
+    : null;
+
+  if (
+    !MEMORY_TYPES.has(proposal.type) ||
+    !MEMORY_IMPORTANCE_LEVELS.has(proposal.importance) ||
+    content.length === 0 ||
+    content.length > MAX_MEMORY_CONTENT_CHARS ||
+    !sourceMessageIds ||
+    sourceMessageIds.length > MAX_MEMORY_SOURCE_MESSAGES ||
+    sourceMessageIds.some(
+      (sourceId) =>
+        typeof sourceId !== "string" ||
+        !OBJECT_ID_PATTERN.test(sourceId)
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    type: proposal.type,
+    content,
+    importance: proposal.importance,
+    sourceMessageIds: [...new Set(sourceMessageIds)],
+  };
+};
+
+const getMemorySaveErrorMessage = (error) => {
+  const status = error.response?.status;
+
+  if (status === 401) {
+    return "Your session expired. Please sign in again.";
+  }
+
+  if (status === 403) {
+    return "You no longer have access to save memory in this workspace.";
+  }
+
+  if (status === 400) {
+    return "This memory suggestion could not be validated. Ask Nova again for a fresh suggestion.";
+  }
+
+  return "The memory couldn't be saved right now. Please try again.";
+};
+
 function AskNovaDialog({ workspaceId, onClose }) {
   const { logout } = useAuth();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const inputRef = useRef(null);
   const isSubmittingRef = useRef(false);
+  const isSavingMemoryRef = useRef(false);
 
   const [question, setQuestion] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [memoryProposal, setMemoryProposal] = useState(null);
+  const [isSavingMemory, setIsSavingMemory] = useState(false);
+  const [memorySaveError, setMemorySaveError] = useState("");
+  const [memorySaveSuccess, setMemorySaveSuccess] = useState(false);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement;
@@ -87,7 +156,10 @@ function AskNovaDialog({ workspaceId, onClose }) {
       if (event.key === "Escape") {
         event.preventDefault();
 
-        if (!isSubmittingRef.current) {
+        if (
+          !isSubmittingRef.current &&
+          !isSavingMemoryRef.current
+        ) {
           onClose();
         }
         return;
@@ -145,7 +217,11 @@ function AskNovaDialog({ workspaceId, onClose }) {
 
       const normalizedQuestion = question.trim();
 
-      if (!normalizedQuestion || isSubmittingRef.current) {
+      if (
+        !normalizedQuestion ||
+        isSubmittingRef.current ||
+        isSavingMemoryRef.current
+      ) {
         return;
       }
 
@@ -153,6 +229,9 @@ function AskNovaDialog({ workspaceId, onClose }) {
       setIsSubmitting(true);
       setError("");
       setResult(null);
+      setMemoryProposal(null);
+      setMemorySaveError("");
+      setMemorySaveSuccess(false);
 
       try {
         const response = await api.post(
@@ -165,6 +244,9 @@ function AskNovaDialog({ workspaceId, onClose }) {
         }
 
         setResult(response.data);
+        setMemoryProposal(
+          normalizeMemoryProposal(response.data.memoryProposal)
+        );
         setQuestion("");
       } catch (requestError) {
         setError(getAgentErrorMessage(requestError));
@@ -180,13 +262,58 @@ function AskNovaDialog({ workspaceId, onClose }) {
     [logout, question, workspaceId]
   );
 
+  const handleSaveMemory = useCallback(async () => {
+    if (!memoryProposal || isSavingMemoryRef.current) {
+      return;
+    }
+
+    isSavingMemoryRef.current = true;
+    setIsSavingMemory(true);
+    setMemorySaveError("");
+    setMemorySaveSuccess(false);
+
+    try {
+      await api.post(`/workspaces/${workspaceId}/ai/memories`, {
+        type: memoryProposal.type,
+        content: memoryProposal.content,
+        importance: memoryProposal.importance,
+        sourceMessageIds: memoryProposal.sourceMessageIds,
+      });
+
+      setMemoryProposal(null);
+      setMemorySaveSuccess(true);
+    } catch (requestError) {
+      setMemorySaveError(getMemorySaveErrorMessage(requestError));
+
+      if (requestError.response?.status === 401) {
+        logout();
+      }
+    } finally {
+      isSavingMemoryRef.current = false;
+      setIsSavingMemory(false);
+    }
+  }, [logout, memoryProposal, workspaceId]);
+
+  const handleDismissMemory = useCallback(() => {
+    if (isSavingMemoryRef.current) {
+      return;
+    }
+
+    setMemoryProposal(null);
+    setMemorySaveError("");
+    setMemorySaveSuccess(false);
+  }, []);
+
   const safeToolCount = Array.isArray(result?.toolsUsed)
     ? new Set(
         result.toolsUsed.filter((tool) => typeof tool === "string")
       ).size
     : 0;
   const canSubmit =
-    question.trim().length > 0 && !isSubmitting;
+    question.trim().length > 0 &&
+    !isSubmitting &&
+    !isSavingMemory;
+  const isBusy = isSubmitting || isSavingMemory;
 
   return (
     <div
@@ -195,7 +322,8 @@ function AskNovaDialog({ workspaceId, onClose }) {
       onClick={(event) => {
         if (
           event.target === event.currentTarget &&
-          !isSubmittingRef.current
+          !isSubmittingRef.current &&
+          !isSavingMemoryRef.current
         ) {
           onClose();
         }
@@ -236,7 +364,7 @@ function AskNovaDialog({ workspaceId, onClose }) {
             id="ask-nova-dialog-close"
             type="button"
             onClick={onClose}
-            disabled={isSubmitting}
+            disabled={isBusy}
             className="button button-secondary px-3"
             aria-label="Close Ask Nova dialog"
           >
@@ -284,6 +412,86 @@ function AskNovaDialog({ workspaceId, onClose }) {
             </section>
           )}
 
+          {memoryProposal && result && !error && (
+            <section
+              className="surface-subtle border-theme mt-4 border p-4 sm:p-5"
+              aria-labelledby="ask-nova-memory-title"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3
+                    id="ask-nova-memory-title"
+                    className="text-heading text-sm font-semibold"
+                  >
+                    Suggested workspace memory
+                  </h3>
+                  <p className="text-muted mt-1 text-xs">
+                    Suggestion only — not saved yet.
+                  </p>
+                </div>
+                <span className="plan-badge plan-badge-free">
+                  {memoryProposal.type}
+                </span>
+              </div>
+
+              <p
+                id="ask-nova-memory-content"
+                className="ai-summary-text mt-4"
+              >
+                {memoryProposal.content}
+              </p>
+              <p className="text-muted mt-3 text-xs capitalize">
+                Importance: {memoryProposal.importance}
+              </p>
+
+              {memorySaveError && (
+                <p
+                  id="ask-nova-memory-error"
+                  className="feedback feedback-error mt-4"
+                  role="alert"
+                >
+                  {memorySaveError}
+                </p>
+              )}
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button
+                  id="ask-nova-memory-save"
+                  type="button"
+                  onClick={handleSaveMemory}
+                  disabled={isSavingMemory}
+                  className="button button-primary flex-1"
+                  aria-busy={isSavingMemory}
+                >
+                  {isSavingMemory && (
+                    <span className="spinner" aria-hidden="true" />
+                  )}
+                  {isSavingMemory ? "Saving to Memory..." : "Save to Memory"}
+                </button>
+                <button
+                  id="ask-nova-memory-dismiss"
+                  type="button"
+                  onClick={handleDismissMemory}
+                  disabled={isSavingMemory}
+                  className="button button-secondary flex-1"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </section>
+          )}
+
+          {memorySaveSuccess && (
+            <p
+              id="ask-nova-memory-success"
+              className="feedback feedback-success mt-4"
+              role="status"
+              aria-live="polite"
+            >
+              Saved to workspace memory.
+            </p>
+          )}
+
           {error && (
             <p
               id="ask-nova-error"
@@ -311,7 +519,7 @@ function AskNovaDialog({ workspaceId, onClose }) {
           <form
             onSubmit={handleSubmit}
             className="border-theme mt-5 border-t pt-5"
-            aria-busy={isSubmitting}
+            aria-busy={isBusy}
           >
             <label htmlFor="ask-nova-question" className="form-label">
               Ask about this workspace
@@ -331,10 +539,11 @@ function AskNovaDialog({ workspaceId, onClose }) {
               onChange={(event) => {
                 setQuestion(event.target.value);
                 setError("");
+                setMemorySaveSuccess(false);
               }}
               placeholder="What did we decide about deployment?"
               maxLength={MAX_QUESTION_CHARS}
-              disabled={isSubmitting}
+              disabled={isBusy}
               aria-invalid={Boolean(error)}
               aria-describedby={
                 error

@@ -89,6 +89,7 @@ const safeAgentResult = Object.freeze({
       success: true,
     },
   ],
+  memoryProposal: null,
   rawObservations: ["private workspace dump"],
   systemPrompt: "hidden system prompt",
   reasoning: "hidden reasoning",
@@ -411,11 +412,13 @@ test("12. response contains answer and safe trace only", async () => {
   assert.equal(response.status, 200);
   assert.deepEqual(Object.keys(response.body).sort(), [
     "answer",
+    "memoryProposal",
     "steps",
     "toolsUsed",
   ]);
   assert.deepEqual(response.body.steps, safeAgentResult.steps);
   assert.deepEqual(response.body.toolsUsed, safeAgentResult.toolsUsed);
+  assert.equal(response.body.memoryProposal, null);
 });
 
 test("13. response excludes observations, prompts, and hidden reasoning", async () => {
@@ -507,4 +510,44 @@ test("16. unexpected failures do not expose internal details", async () => {
   assert.equal(response.body.code, "WORKSPACE_AGENT_FAILED");
   assert.equal(serializedResponse.includes("password"), false);
   assert.equal(serializedResponse.includes("private-host"), false);
+});
+
+test("17. response exposes only the safe memory proposal shape", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace([owner.user]);
+  const sourceMessageId = new mongoose.Types.ObjectId().toString();
+  setWorkspaceAgentControllerOverrides({
+    runner: async () => ({
+      ...safeAgentResult,
+      memoryProposal: {
+        type: "decision",
+        content: "Production uses Railway.",
+        importance: "high",
+        sourceMessageIds: [sourceMessageId],
+        workspace: "hidden-workspace",
+        createdBy: "hidden-user",
+        reasoning: "hidden proposal reasoning",
+      },
+    }),
+  });
+
+  const response = await requestAgent(workspace._id, owner.token);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.memoryProposal, {
+    type: "decision",
+    content: "Production uses Railway.",
+    importance: "high",
+    sourceMessageIds: [sourceMessageId],
+  });
+  assert.deepEqual(Object.keys(response.body.memoryProposal).sort(), [
+    "content",
+    "importance",
+    "sourceMessageIds",
+    "type",
+  ]);
+  assert.equal(
+    JSON.stringify(response.body).includes("hidden proposal reasoning"),
+    false
+  );
 });
