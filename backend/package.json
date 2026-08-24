@@ -22,6 +22,8 @@
     "test:integration:workspace-mcp:docker": "node scripts/runWorkspaceMcpIntegrationTests.js",
     "test:integration:workspace-agent": "node --test --test-concurrency=1 tests/integration/workspaceAgent.integration.test.js",
     "test:integration:workspace-agent:docker": "node scripts/runWorkspaceAgentIntegrationTests.js",
+    "test:integration:workspace-agent-route": "node --test --test-concurrency=1 tests/integration/workspaceAgentRoute.integration.test.js",
+    "test:integration:workspace-agent-route:docker": "node scripts/runWorkspaceAgentRouteIntegrationTests.js",
     "admin:promote": "node scripts/promoteAdmin.js",
     "user:set-plan": "node scripts/setUserPlan.js"
   },

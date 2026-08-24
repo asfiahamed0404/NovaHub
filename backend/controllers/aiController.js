@@ -10,11 +10,36 @@ import {
   generateWorkspaceSummary,
   AiProviderError,
 } from "../services/ai/aiService.js";
+import {
+  MAX_AGENT_QUESTION_CHARS,
+  runWorkspaceAgent,
+  WorkspaceAgentError,
+} from "../services/ai/agent/workspaceAgentService.js";
 
 const VALID_SCOPES = new Set(["missed", "recent", "overview"]);
+const AGENT_REQUEST_FIELDS = new Set(["question"]);
+
+let workspaceAgentRunnerOverride = null;
+let workspaceAgentEntitlementResolverOverride = null;
+
+// Deterministic integration-test seams. Production always uses the imported
+// agent and entitlement services because these overrides default to null.
+export const setWorkspaceAgentControllerOverrides = ({
+  runner = null,
+  entitlementResolver = null,
+} = {}) => {
+  workspaceAgentRunnerOverride = runner;
+  workspaceAgentEntitlementResolverOverride = entitlementResolver;
+};
+
+export const resetWorkspaceAgentControllerOverrides = () => {
+  workspaceAgentRunnerOverride = null;
+  workspaceAgentEntitlementResolverOverride = null;
+};
 
 /**
- * Enforce MongoDB-backed user-level rate limit across all workspaces.
+ * Enforce MongoDB-backed user-level rate limit across all AI operations and
+ * workspaces.
  * Limit: 60-minute request window anchored at first request.
  * Supports plan-based maxRequestsPerWindow.
  */
@@ -122,6 +147,166 @@ const checkAndIncrementAiRateLimit = async (userId, maxRequestsPerWindow) => {
     allowed: false,
     retryAfterSeconds,
   };
+};
+
+/**
+ * POST /api/workspaces/:workspaceId/ai/agent
+ *
+ * Runs the read-only Workspace Agent with an authorization context assembled
+ * exclusively from the authenticated user and current workspace document.
+ */
+export const askWorkspaceAgent = async (req, res) => {
+  res.set("Cache-Control", "no-store");
+
+  try {
+    const { workspaceId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(workspaceId)) {
+      return res.status(400).json({
+        message: "Invalid workspace ID.",
+        code: "INVALID_WORKSPACE_ID",
+      });
+    }
+
+    if (!req.user?._id || !mongoose.Types.ObjectId.isValid(req.user._id)) {
+      return res.status(401).json({
+        message: "Not authorized, user session is invalid.",
+        code: "INVALID_AUTHENTICATED_USER",
+      });
+    }
+
+    const body = req.body;
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return res.status(400).json({
+        message: "Request body must contain a question.",
+        code: "INVALID_AGENT_REQUEST",
+      });
+    }
+
+    const unexpectedFields = Object.keys(body).filter(
+      (field) => !AGENT_REQUEST_FIELDS.has(field)
+    );
+
+    if (unexpectedFields.length > 0) {
+      return res.status(400).json({
+        message: "Request body may only contain a question.",
+        code: "INVALID_AGENT_REQUEST",
+      });
+    }
+
+    if (typeof body.question !== "string") {
+      return res.status(400).json({
+        message: "Question must be a string.",
+        code: "INVALID_AGENT_QUESTION",
+      });
+    }
+
+    const question = body.question.trim();
+
+    if (question.length === 0) {
+      return res.status(400).json({
+        message: "Question is required.",
+        code: "INVALID_AGENT_QUESTION",
+      });
+    }
+
+    if (question.length > MAX_AGENT_QUESTION_CHARS) {
+      return res.status(400).json({
+        message: `Question cannot exceed ${MAX_AGENT_QUESTION_CHARS} characters.`,
+        code: "INVALID_AGENT_QUESTION",
+      });
+    }
+
+    const workspace = await Workspace.findById(workspaceId).select(
+      "members"
+    );
+
+    if (!workspace) {
+      return res.status(404).json({
+        message: "Workspace not found.",
+        code: "WORKSPACE_NOT_FOUND",
+      });
+    }
+
+    const userId = req.user._id;
+    const isMember = workspace.members.some(
+      (memberId) => memberId.toString() === userId.toString()
+    );
+
+    if (!isMember) {
+      return res.status(403).json({
+        message: "You are not a member of this workspace.",
+        code: "WORKSPACE_ACCESS_DENIED",
+      });
+    }
+
+    // protect reloads req.user from MongoDB for this request, so the role is
+    // current server data rather than a JWT/body claim. Workspace membership
+    // itself has no role field in the present schema.
+    const role = req.user.role || "user";
+    const entitlementResolver =
+      workspaceAgentEntitlementResolverOverride ||
+      getEntitlementsForUser;
+    const entitlements = entitlementResolver(req.user);
+    const aiEntitlement = entitlements?.aiSummary;
+
+    if (aiEntitlement?.enabled !== true) {
+      return res.status(403).json({
+        message: "Your current plan does not include NovaHub AI access.",
+        code: "AI_NOT_ENTITLED",
+      });
+    }
+
+    const { requestsPerWindow, windowMinutes } = aiEntitlement;
+    const rateLimitCheck = await checkAndIncrementAiRateLimit(
+      userId,
+      requestsPerWindow
+    );
+
+    if (!rateLimitCheck.allowed) {
+      res.set(
+        "Retry-After",
+        rateLimitCheck.retryAfterSeconds.toString()
+      );
+
+      return res.status(429).json({
+        message: `AI request limit exceeded. You can make up to ${requestsPerWindow} AI requests per ${windowMinutes} minutes.`,
+        code: "RATE_LIMIT_EXCEEDED",
+        retryAfterSeconds: rateLimitCheck.retryAfterSeconds,
+      });
+    }
+
+    const agentRunner =
+      workspaceAgentRunnerOverride || runWorkspaceAgent;
+    const result = await agentRunner({
+      workspaceId: workspace._id.toString(),
+      userId: userId.toString(),
+      role,
+      question,
+    });
+
+    return res.status(200).json({
+      answer: result.answer,
+      toolsUsed: result.toolsUsed,
+      steps: result.steps,
+    });
+  } catch (error) {
+    if (
+      error instanceof WorkspaceAgentError ||
+      error instanceof AiProviderError
+    ) {
+      return res.status(error.status).json({
+        message: error.message,
+        code: error.code,
+      });
+    }
+
+    return res.status(500).json({
+      message: "Nova could not answer that right now.",
+      code: "WORKSPACE_AGENT_FAILED",
+    });
+  }
 };
 
 /**
