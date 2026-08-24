@@ -654,4 +654,43 @@ describe("Ask Nova workspace experience", () => {
     expect(screen.queryByRole("button", { name: "Save to Memory" }))
       .not.toBeInTheDocument();
   });
+
+  it("24. duplicate save is handled as an existing memory", async () => {
+    const user = userEvent.setup();
+    api.post
+      .mockResolvedValueOnce({
+        data: buildAgentResponse({
+          memoryProposal: buildMemoryProposal(),
+        }),
+      })
+      .mockResolvedValueOnce({
+        data: {
+          memory: { id: "existing-memory" },
+          duplicate: true,
+        },
+      });
+    renderDialog();
+
+    await user.type(
+      screen.getByLabelText("Ask about this workspace"),
+      "What did we decide?"
+    );
+    await user.keyboard("{Enter}");
+    await user.click(
+      await screen.findByRole("button", { name: "Save to Memory" })
+    );
+
+    expect(
+      await screen.findByText(
+        "This is already saved in workspace memory."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Suggested workspace memory"))
+      .not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "The memory couldn't be saved right now. Please try again."
+      )
+    ).not.toBeInTheDocument();
+  });
 });

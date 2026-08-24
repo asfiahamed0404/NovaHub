@@ -14,6 +14,11 @@ export const WORKSPACE_MEMORY_IMPORTANCE_LEVELS = Object.freeze([
 export const MAX_WORKSPACE_MEMORY_CONTENT_CHARS = 4000;
 export const MAX_WORKSPACE_MEMORY_SOURCE_MESSAGES = 20;
 
+export const normalizeWorkspaceMemoryContent = (content) =>
+  typeof content === "string"
+    ? content.trim().replace(/\s+/gu, " ").toLowerCase()
+    : "";
+
 const workspaceMemorySchema = new mongoose.Schema(
   {
     workspace: {
@@ -33,6 +38,14 @@ const workspaceMemorySchema = new mongoose.Schema(
       required: true,
       trim: true,
       maxlength: MAX_WORKSPACE_MEMORY_CONTENT_CHARS,
+    },
+
+    // Internal canonical value used only for conservative exact duplicate
+    // detection. Existing records can remain without it until they are
+    // otherwise saved; the service has a scoped compatibility lookup.
+    normalizedContent: {
+      type: String,
+      select: false,
     },
 
     sourceMessageIds: {
@@ -65,6 +78,27 @@ const workspaceMemorySchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+  }
+);
+
+workspaceMemorySchema.pre("validate", function setNormalizedContent() {
+  const normalizedContent = normalizeWorkspaceMemoryContent(
+    this.content
+  );
+
+  this.normalizedContent = normalizedContent || undefined;
+});
+
+// The canonical key makes approved saves idempotent under concurrent requests
+// while preserving independent memories across workspaces and memory types.
+workspaceMemorySchema.index(
+  { workspace: 1, type: 1, normalizedContent: 1 },
+  {
+    name: "workspace_type_normalized_content_unique",
+    unique: true,
+    partialFilterExpression: {
+      normalizedContent: { $type: "string" },
+    },
   }
 );
 

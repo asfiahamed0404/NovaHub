@@ -10,6 +10,7 @@ import {
   WORKSPACE_MEMORY_IMPORTANCE_LEVELS,
   WORKSPACE_MEMORY_TYPES,
 } from "../../../models/WorkspaceMemory.js";
+import { findExactWorkspaceMemory } from "../../memory/workspaceMemoryService.js";
 import { getAiConfig } from "../../../utils/aiConfig.js";
 import {
   AiProviderError,
@@ -447,19 +448,39 @@ export const runWorkspaceAgent = async ({
           );
         }
 
+        let memoryProposal =
+          hasGroundingEvidence && action.memoryProposal
+            ? {
+                ...action.memoryProposal,
+                sourceMessageIds: [...observedSourceMessageIds],
+              }
+            : null;
+
+        if (memoryProposal) {
+          try {
+            const duplicateMemory = await findExactWorkspaceMemory({
+              workspaceId,
+              type: memoryProposal.type,
+              content: memoryProposal.content,
+            });
+
+            if (duplicateMemory) {
+              memoryProposal = null;
+            }
+          } catch {
+            // Duplicate verification is fail-closed for the optional proposal:
+            // preserve the grounded answer without suggesting an unchecked save.
+            memoryProposal = null;
+          }
+        }
+
         return {
           answer: hasGroundingEvidence
             ? action.answer
             : GROUNDED_NOT_FOUND_ANSWER,
           steps,
           toolsUsed: [...new Set(toolsUsed)],
-          memoryProposal:
-            hasGroundingEvidence && action.memoryProposal
-              ? {
-                  ...action.memoryProposal,
-                  sourceMessageIds: [...observedSourceMessageIds],
-                }
-              : null,
+          memoryProposal,
         };
       }
 

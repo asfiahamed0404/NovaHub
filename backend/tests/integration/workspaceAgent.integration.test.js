@@ -59,6 +59,9 @@ const { default: Workspace } = await import(
 const { default: WorkspaceMemory } = await import(
   "../../models/WorkspaceMemory.js"
 );
+const { createWorkspaceMemory } = await import(
+  "../../services/memory/workspaceMemoryService.js"
+);
 const {
   AGENT_RECENT_FALLBACK_LIMIT,
   MAX_AGENT_MODEL_CALLS,
@@ -435,6 +438,48 @@ test("agent final response may contain a grounded memory proposal", async () => 
     await WorkspaceMemory.countDocuments({ workspace: workspace._id }),
     0,
     "runWorkspaceAgent must never persist its own proposal"
+  );
+});
+
+test("agent suppresses an equivalent existing memory proposal but keeps its answer", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(
+    owner,
+    "Duplicate proposal workspace"
+  );
+  await createWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content:
+      "Production hosting: Railway for backend, Vercel for frontend",
+    createdBy: owner._id,
+    importance: "high",
+  });
+  setProviderSequence([
+    toolAction("list_workspace_memories", {
+      type: "decision",
+      limit: 10,
+    }),
+    finalAction("Production uses Railway and Vercel.", {
+      type: "decision",
+      content:
+        "  production hosting: railway for backend,   vercel for frontend  ",
+      importance: "normal",
+    }),
+  ]);
+
+  const result = await runFor({
+    workspace,
+    user: owner,
+    question: "What did we decide about production hosting?",
+  });
+
+  assert.equal(result.answer, "Production uses Railway and Vercel.");
+  assert.deepEqual(result.toolsUsed, ["list_workspace_memories"]);
+  assert.equal(result.memoryProposal, null);
+  assert.equal(
+    await WorkspaceMemory.countDocuments({ workspace: workspace._id }),
+    1
   );
 });
 

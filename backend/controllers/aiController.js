@@ -21,7 +21,7 @@ import {
   runWorkspaceAgent,
   WorkspaceAgentError,
 } from "../services/ai/agent/workspaceAgentService.js";
-import { createWorkspaceMemory } from "../services/memory/workspaceMemoryService.js";
+import { createWorkspaceMemoryIfNotExists } from "../services/memory/workspaceMemoryService.js";
 
 const VALID_SCOPES = new Set(["missed", "recent", "overview"]);
 const AGENT_REQUEST_FIELDS = new Set(["question"]);
@@ -533,16 +533,17 @@ export const saveApprovedWorkspaceMemory = async (req, res) => {
       }
     }
 
-    const memory = await createWorkspaceMemory({
-      workspaceId: workspace._id,
-      type: body.type,
-      content,
-      sourceMessageIds,
-      createdBy: req.user._id,
-      importance: body.importance,
-    });
+    const { memory, duplicate } =
+      await createWorkspaceMemoryIfNotExists({
+        workspaceId: workspace._id,
+        type: body.type,
+        content,
+        sourceMessageIds,
+        createdBy: req.user._id,
+        importance: body.importance,
+      });
 
-    return res.status(201).json({
+    return res.status(duplicate ? 200 : 201).json({
       memory: {
         id: memory._id.toString(),
         type: memory.type,
@@ -553,6 +554,7 @@ export const saveApprovedWorkspaceMemory = async (req, res) => {
         ),
         createdAt: memory.createdAt.toISOString(),
       },
+      duplicate,
     });
   } catch (error) {
     if (error instanceof mongoose.Error.ValidationError) {

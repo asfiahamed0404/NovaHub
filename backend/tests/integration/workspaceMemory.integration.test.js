@@ -56,6 +56,8 @@ const { default: WorkspaceMemory } = await import(
 );
 const {
   createWorkspaceMemory,
+  createWorkspaceMemoryIfNotExists,
+  findExactWorkspaceMemory,
   getWorkspaceMemoryById,
   listWorkspaceMemories,
 } = await import(
@@ -282,4 +284,135 @@ test("source message provenance is bounded to 20 IDs", async () => {
       error instanceof mongoose.Error.ValidationError &&
       Boolean(error.errors.sourceMessageIds)
   );
+});
+
+test("exact lookup normalizes case and whitespace within workspace and type", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner);
+  const memory = await createWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content:
+      "Production hosting: Railway for backend, Vercel for frontend",
+    createdBy: owner._id,
+    importance: "high",
+  });
+
+  const exactMatch = await findExactWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content:
+      "Production hosting: Railway for backend, Vercel for frontend",
+  });
+  const normalizedMatch = await findExactWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content:
+      "  production hosting: railway for backend,   vercel for frontend  ",
+  });
+
+  assert.equal(exactMatch._id.toString(), memory._id.toString());
+  assert.equal(normalizedMatch._id.toString(), memory._id.toString());
+});
+
+test("exact lookup keeps memory types independent", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner);
+  await createWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content: "Use Railway",
+    createdBy: owner._id,
+  });
+
+  const match = await findExactWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "note",
+    content: "Use Railway",
+  });
+
+  assert.equal(match, null);
+});
+
+test("exact lookup does not use semantic, fuzzy, or punctuation matching", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner);
+  await createWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content: "Railway hosts the backend.",
+    createdBy: owner._id,
+  });
+
+  const changedMeaning = await findExactWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content: "The backend migrated from Railway to AWS.",
+  });
+  const changedPunctuation = await findExactWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content: "Railway hosts the backend",
+  });
+
+  assert.equal(changedMeaning, null);
+  assert.equal(changedPunctuation, null);
+});
+
+test("exact lookup never crosses workspace boundaries", async () => {
+  const owner = await makeUser("owner");
+  const workspaceA = await makeWorkspace(owner);
+  const workspaceB = await makeWorkspace(owner);
+  await createWorkspaceMemory({
+    workspaceId: workspaceA._id,
+    type: "decision",
+    content: "Use Railway",
+    createdBy: owner._id,
+  });
+
+  const match = await findExactWorkspaceMemory({
+    workspaceId: workspaceB._id,
+    type: "decision",
+    content: "Use Railway",
+  });
+  const result = await createWorkspaceMemoryIfNotExists({
+    workspaceId: workspaceB._id,
+    type: "decision",
+    content: "Use Railway",
+    createdBy: owner._id,
+  });
+
+  assert.equal(match, null);
+  assert.equal(result.duplicate, false);
+  assert.equal(await WorkspaceMemory.countDocuments({}), 2);
+});
+
+test("exact lookup recognizes legacy records without rewriting them", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner);
+  const legacyId = new mongoose.Types.ObjectId();
+
+  await WorkspaceMemory.collection.insertOne({
+    _id: legacyId,
+    workspace: workspace._id,
+    type: "decision",
+    content: "Legacy  Railway decision",
+    sourceMessageIds: [],
+    createdBy: owner._id,
+    importance: "normal",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  const match = await findExactWorkspaceMemory({
+    workspaceId: workspace._id,
+    type: "decision",
+    content: " legacy railway DECISION ",
+  });
+  const stored = await WorkspaceMemory.collection.findOne({
+    _id: legacyId,
+  });
+
+  assert.equal(match._id.toString(), legacyId.toString());
+  assert.equal("normalizedContent" in stored, false);
 });

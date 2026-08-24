@@ -562,3 +562,113 @@ test("17. approved REST saving does not add or require an MCP write tool", async
     await Promise.allSettled([client.close(), server.close()]);
   }
 });
+
+test("18. repeated normalized save returns the existing memory", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace([owner.user]);
+  const firstResponse = await requestMemory(
+    workspace._id,
+    owner.token,
+    buildMemoryRequest({
+      content:
+        "Production hosting: Railway for backend, Vercel for frontend",
+      importance: "high",
+    })
+  );
+  const duplicateResponse = await requestMemory(
+    workspace._id,
+    owner.token,
+    buildMemoryRequest({
+      content:
+        "  production hosting: railway for backend,   vercel for frontend  ",
+      importance: "low",
+    })
+  );
+
+  assert.equal(firstResponse.status, 201);
+  assert.equal(firstResponse.body.duplicate, false);
+  assert.equal(duplicateResponse.status, 200);
+  assert.equal(duplicateResponse.body.duplicate, true);
+  assert.equal(
+    duplicateResponse.body.memory.id,
+    firstResponse.body.memory.id
+  );
+  assert.equal(duplicateResponse.body.memory.importance, "high");
+  assert.equal(await WorkspaceMemory.countDocuments({}), 1);
+});
+
+test("19. the same content with a different type creates a memory", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace([owner.user]);
+  const decisionResponse = await requestMemory(
+    workspace._id,
+    owner.token,
+    buildMemoryRequest({ type: "decision", content: "Use Railway" })
+  );
+  const noteResponse = await requestMemory(
+    workspace._id,
+    owner.token,
+    buildMemoryRequest({ type: "note", content: "Use Railway" })
+  );
+
+  assert.equal(decisionResponse.status, 201);
+  assert.equal(noteResponse.status, 201);
+  assert.equal(noteResponse.body.duplicate, false);
+  assert.equal(await WorkspaceMemory.countDocuments({}), 2);
+});
+
+test("20. the same type and content remain independent by workspace", async () => {
+  const owner = await makeUser("owner");
+  const workspaceA = await makeWorkspace([owner.user]);
+  const workspaceB = await makeWorkspace([owner.user]);
+  const responseA = await requestMemory(
+    workspaceA._id,
+    owner.token,
+    buildMemoryRequest({ content: "Use Railway" })
+  );
+  const responseB = await requestMemory(
+    workspaceB._id,
+    owner.token,
+    buildMemoryRequest({ content: "Use Railway" })
+  );
+
+  assert.equal(responseA.status, 201);
+  assert.equal(responseB.status, 201);
+  assert.equal(responseB.body.duplicate, false);
+  assert.equal(await WorkspaceMemory.countDocuments({}), 2);
+});
+
+test("21. concurrent duplicate saves create one memory", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace([owner.user]);
+  const [responseA, responseB] = await Promise.all([
+    requestMemory(
+      workspace._id,
+      owner.token,
+      buildMemoryRequest({ content: "Use Railway for production" })
+    ),
+    requestMemory(
+      workspace._id,
+      owner.token,
+      buildMemoryRequest({
+        content: "  use   railway for PRODUCTION  ",
+        importance: "normal",
+      })
+    ),
+  ]);
+  const responses = [responseA, responseB];
+
+  assert.deepEqual(
+    responses.map((response) => response.status).sort(),
+    [200, 201]
+  );
+  assert.deepEqual(
+    responses.map((response) => response.body.duplicate).sort(),
+    [false, true]
+  );
+  assert.equal(
+    responseA.body.memory.id,
+    responseB.body.memory.id
+  );
+  assert.equal(await WorkspaceMemory.countDocuments({}), 1);
+});

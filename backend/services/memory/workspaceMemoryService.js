@@ -1,4 +1,6 @@
-import WorkspaceMemory from "../../models/WorkspaceMemory.js";
+import WorkspaceMemory, {
+  normalizeWorkspaceMemoryContent,
+} from "../../models/WorkspaceMemory.js";
 
 export const createWorkspaceMemory = ({
   workspaceId,
@@ -16,6 +18,75 @@ export const createWorkspaceMemory = ({
     createdBy,
     importance,
   });
+
+export const findExactWorkspaceMemory = async ({
+  workspaceId,
+  type,
+  content,
+}) => {
+  const normalizedContent = normalizeWorkspaceMemoryContent(content);
+
+  if (!normalizedContent) {
+    return null;
+  }
+
+  const indexedMatch = await WorkspaceMemory.findOne({
+    workspace: workspaceId,
+    type,
+    normalizedContent,
+  });
+
+  if (indexedMatch) {
+    return indexedMatch;
+  }
+
+  // Compatibility for records created before normalizedContent existed. This
+  // remains workspace/type scoped and streams results instead of loading an
+  // unbounded collection into application memory.
+  const legacyMemories = WorkspaceMemory.find({
+    workspace: workspaceId,
+    type,
+    normalizedContent: { $exists: false },
+  }).cursor();
+
+  for await (const memory of legacyMemories) {
+    if (
+      normalizeWorkspaceMemoryContent(memory.content) ===
+      normalizedContent
+    ) {
+      return memory;
+    }
+  }
+
+  return null;
+};
+
+export const createWorkspaceMemoryIfNotExists = async (memoryInput) => {
+  const existingMemory = await findExactWorkspaceMemory(memoryInput);
+
+  if (existingMemory) {
+    return { memory: existingMemory, duplicate: true };
+  }
+
+  try {
+    const memory = await createWorkspaceMemory(memoryInput);
+    return { memory, duplicate: false };
+  } catch (error) {
+    if (error?.code !== 11000) {
+      throw error;
+    }
+
+    // A concurrent request may have inserted the same canonical key after the
+    // pre-check. Return that winner as an idempotent duplicate response.
+    const concurrentMemory = await findExactWorkspaceMemory(memoryInput);
+
+    if (concurrentMemory) {
+      return { memory: concurrentMemory, duplicate: true };
+    }
+
+    throw error;
+  }
+};
 
 export const listWorkspaceMemories = ({
   workspaceId,

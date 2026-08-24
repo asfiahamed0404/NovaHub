@@ -143,7 +143,7 @@ function AskNovaDialog({ workspaceId, onClose }) {
   const [memoryProposal, setMemoryProposal] = useState(null);
   const [isSavingMemory, setIsSavingMemory] = useState(false);
   const [memorySaveError, setMemorySaveError] = useState("");
-  const [memorySaveSuccess, setMemorySaveSuccess] = useState(false);
+  const [memorySaveMessage, setMemorySaveMessage] = useState("");
 
   useEffect(() => {
     const previouslyFocused = document.activeElement;
@@ -231,7 +231,7 @@ function AskNovaDialog({ workspaceId, onClose }) {
       setResult(null);
       setMemoryProposal(null);
       setMemorySaveError("");
-      setMemorySaveSuccess(false);
+      setMemorySaveMessage("");
 
       try {
         const response = await api.post(
@@ -270,18 +270,25 @@ function AskNovaDialog({ workspaceId, onClose }) {
     isSavingMemoryRef.current = true;
     setIsSavingMemory(true);
     setMemorySaveError("");
-    setMemorySaveSuccess(false);
+    setMemorySaveMessage("");
 
     try {
-      await api.post(`/workspaces/${workspaceId}/ai/memories`, {
-        type: memoryProposal.type,
-        content: memoryProposal.content,
-        importance: memoryProposal.importance,
-        sourceMessageIds: memoryProposal.sourceMessageIds,
-      });
+      const response = await api.post(
+        `/workspaces/${workspaceId}/ai/memories`,
+        {
+          type: memoryProposal.type,
+          content: memoryProposal.content,
+          importance: memoryProposal.importance,
+          sourceMessageIds: memoryProposal.sourceMessageIds,
+        }
+      );
 
       setMemoryProposal(null);
-      setMemorySaveSuccess(true);
+      setMemorySaveMessage(
+        response.data?.duplicate === true
+          ? "This is already saved in workspace memory."
+          : "Saved to workspace memory."
+      );
     } catch (requestError) {
       setMemorySaveError(getMemorySaveErrorMessage(requestError));
 
@@ -301,7 +308,7 @@ function AskNovaDialog({ workspaceId, onClose }) {
 
     setMemoryProposal(null);
     setMemorySaveError("");
-    setMemorySaveSuccess(false);
+    setMemorySaveMessage("");
   }, []);
 
   const safeToolCount = Array.isArray(result?.toolsUsed)
@@ -481,14 +488,14 @@ function AskNovaDialog({ workspaceId, onClose }) {
             </section>
           )}
 
-          {memorySaveSuccess && (
+          {memorySaveMessage && (
             <p
               id="ask-nova-memory-success"
               className="feedback feedback-success mt-4"
               role="status"
               aria-live="polite"
             >
-              Saved to workspace memory.
+              {memorySaveMessage}
             </p>
           )}
 
@@ -539,7 +546,7 @@ function AskNovaDialog({ workspaceId, onClose }) {
               onChange={(event) => {
                 setQuestion(event.target.value);
                 setError("");
-                setMemorySaveSuccess(false);
+                setMemorySaveMessage("");
               }}
               placeholder="What did we decide about deployment?"
               maxLength={MAX_QUESTION_CHARS}
