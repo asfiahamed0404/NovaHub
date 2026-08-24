@@ -22,6 +22,7 @@ export const MAX_AGENT_QUESTION_CHARS = 2000;
 export const MAX_AGENT_ANSWER_CHARS = 6000;
 export const MAX_AGENT_OBSERVATION_CHARS = 8000;
 export const MAX_AGENT_OUTPUT_TOKENS = 1024;
+export const AGENT_RECENT_FALLBACK_LIMIT = 20;
 
 const GROUNDED_NOT_FOUND_ANSWER =
   "I couldn't find that in the available workspace context.";
@@ -72,6 +73,7 @@ SECURITY AND AUTHORITY RULES:
 8. Do not provide chain-of-thought or hidden reasoning.
 9. You may optionally suggest one durable workspace memory only when it is directly supported by actual MCP observations. Most answers should use null. Never propose guesses, temporary chatter, or data found only in the user's question.
 10. A memory proposal may contain only type, content, and importance. Never provide workspace, createdBy, userId, role, or sourceMessageIds. The trusted server derives provenance separately.
+11. RETRIEVAL FALLBACK: If search_workspace_messages returns no messages, or its results do not contain useful evidence for the question, use get_recent_messages as a bounded fallback when a tool step remains. Do this before returning the deterministic not-found answer. Do not repeatedly retry lexical search with guessed synonyms.
 
 RESPONSE PROTOCOL:
 Return ONLY one valid JSON object with no markdown or extra text.
@@ -412,18 +414,29 @@ export const runWorkspaceAgent = async ({
     const toolsUsed = [];
     const observedSourceMessageIds = [];
     let hasGroundingEvidence = false;
+    let modelCallCount = 0;
+    let pendingRecentMessagesFallback = false;
+    let recentMessagesAttempted = false;
 
-    for (
-      let modelCall = 1;
-      modelCall <= MAX_AGENT_MODEL_CALLS;
-      modelCall += 1
-    ) {
-      const rawModelResponse = await generateAgentAction({
-        question: normalizedQuestion,
-        toolCatalog,
-        observations,
-      });
-      const action = parseModelAction(rawModelResponse);
+    while (modelCallCount < MAX_AGENT_MODEL_CALLS) {
+      let action;
+
+      if (pendingRecentMessagesFallback) {
+        pendingRecentMessagesFallback = false;
+        action = {
+          action: "tool",
+          tool: "get_recent_messages",
+          arguments: { limit: AGENT_RECENT_FALLBACK_LIMIT },
+        };
+      } else {
+        modelCallCount += 1;
+        const rawModelResponse = await generateAgentAction({
+          question: normalizedQuestion,
+          toolCatalog,
+          observations,
+        });
+        action = parseModelAction(rawModelResponse);
+      }
 
       if (action.action === "final") {
         if (observations.length === 0) {
@@ -522,6 +535,24 @@ export const runWorkspaceAgent = async ({
         evidenceFound,
         result: serializedObservation,
       });
+
+      if (action.tool === "get_recent_messages") {
+        recentMessagesAttempted = true;
+      }
+
+      if (
+        action.tool === "search_workspace_messages" &&
+        !evidenceFound &&
+        steps.length < MAX_AGENT_STEPS &&
+        allowedToolNames.has("get_recent_messages") &&
+        !recentMessagesAttempted
+      ) {
+        // A zero-result lexical search always receives exactly one bounded
+        // fallback through the same workspace-bound MCP client. This is a
+        // service invariant rather than a request left to model discretion.
+        recentMessagesAttempted = true;
+        pendingRecentMessagesFallback = true;
+      }
     }
 
     throw new WorkspaceAgentError(

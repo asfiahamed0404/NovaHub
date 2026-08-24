@@ -60,6 +60,7 @@ const { default: WorkspaceMemory } = await import(
   "../../models/WorkspaceMemory.js"
 );
 const {
+  AGENT_RECENT_FALLBACK_LIMIT,
   MAX_AGENT_MODEL_CALLS,
   MAX_AGENT_QUESTION_CHARS,
   MAX_AGENT_STEPS,
@@ -226,6 +227,177 @@ test("agent can choose get_recent_messages", async () => {
 
   assert.equal(result.answer, "The release is scheduled Friday.");
   assert.deepEqual(result.toolsUsed, ["get_recent_messages"]);
+});
+
+test("lexical search with results can answer without recent-message fallback", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Lexical hit workspace");
+  await makeMessage(
+    workspace,
+    owner,
+    "The deployment decision is to use Railway."
+  );
+  const calls = [];
+  setProviderSequence(
+    [
+      toolAction("search_workspace_messages", {
+        query: "deployment",
+      }),
+      finalAction("The deployment decision is to use Railway."),
+    ],
+    calls
+  );
+
+  const result = await runFor({ workspace, user: owner });
+
+  assert.equal(
+    result.answer,
+    "The deployment decision is to use Railway."
+  );
+  assert.deepEqual(result.toolsUsed, ["search_workspace_messages"]);
+  assert.deepEqual(result.steps, [
+    {
+      step: 1,
+      tool: "search_workspace_messages",
+      success: true,
+    },
+  ]);
+  assert.equal(calls.length, 2);
+});
+
+test("empty lexical search deterministically falls back to recent messages", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Fallback workspace");
+  await makeMessage(
+    workspace,
+    owner,
+    "Production backend uses Railway."
+  );
+  const calls = [];
+  setProviderSequence(
+    [
+      toolAction("search_workspace_messages", {
+        query: "deployment",
+      }),
+      finalAction("Production backend uses Railway."),
+    ],
+    calls
+  );
+
+  const result = await runFor({ workspace, user: owner });
+
+  assert.equal(result.answer, "Production backend uses Railway.");
+  assert.deepEqual(result.toolsUsed, [
+    "search_workspace_messages",
+    "get_recent_messages",
+  ]);
+  assert.deepEqual(result.steps, [
+    {
+      step: 1,
+      tool: "search_workspace_messages",
+      success: true,
+    },
+    {
+      step: 2,
+      tool: "get_recent_messages",
+      success: true,
+    },
+  ]);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].userPrompt, /Production backend uses Railway/);
+  assert.equal(AGENT_RECENT_FALLBACK_LIMIT, 20);
+});
+
+test("empty lexical and recent retrievals return deterministic not-found without memory", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Empty fallback workspace");
+  setProviderSequence([
+    toolAction("search_workspace_messages", {
+      query: "deployment",
+    }),
+    finalAction("An unsupported deployment guess.", {
+      type: "decision",
+      content: "An unsupported memory.",
+      importance: "high",
+    }),
+  ]);
+
+  const result = await runFor({ workspace, user: owner });
+
+  assert.equal(
+    result.answer,
+    "I couldn't find that in the available workspace context."
+  );
+  assert.equal(result.memoryProposal, null);
+  assert.deepEqual(
+    result.steps.map((step) => step.tool),
+    ["search_workspace_messages", "get_recent_messages"]
+  );
+});
+
+test("recent-message fallback consumes one step without exceeding the step bound", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Bounded fallback");
+  setProviderSequence([
+    toolAction("get_workspace_info"),
+    toolAction("list_workspace_memories", { limit: 1 }),
+    toolAction("search_workspace_messages", {
+      query: "deployment",
+    }),
+    finalAction("No deployment evidence was found."),
+  ]);
+
+  const result = await runFor({ workspace, user: owner });
+
+  assert.equal(result.steps.length, MAX_AGENT_STEPS);
+  assert.deepEqual(
+    result.steps.map((step) => step.tool),
+    [
+      "get_workspace_info",
+      "list_workspace_memories",
+      "search_workspace_messages",
+      "get_recent_messages",
+    ]
+  );
+});
+
+test("recent-message fallback remains bound to the current workspace", async () => {
+  const owner = await makeUser("owner");
+  const workspaceA = await makeWorkspace(owner, "Fallback A");
+  const workspaceB = await makeWorkspace(owner, "Fallback B");
+  await makeMessage(
+    workspaceA,
+    owner,
+    "Workspace A production uses the blue environment."
+  );
+  await makeMessage(
+    workspaceB,
+    owner,
+    "Workspace B private deployment secret."
+  );
+  const calls = [];
+  setProviderSequence(
+    [
+      toolAction("search_workspace_messages", {
+        query: "Railway",
+      }),
+      finalAction("Workspace A uses the blue environment."),
+    ],
+    calls
+  );
+
+  const result = await runFor({ workspace: workspaceA, user: owner });
+
+  assert.equal(
+    result.answer,
+    "Workspace A uses the blue environment."
+  );
+  assert.match(calls[1].userPrompt, /Workspace A production/);
+  assert.doesNotMatch(calls[1].userPrompt, /Workspace B private/);
+  assert.deepEqual(
+    result.steps.map((step) => step.tool),
+    ["search_workspace_messages", "get_recent_messages"]
+  );
 });
 
 test("agent final response may contain a grounded memory proposal", async () => {
@@ -609,7 +781,7 @@ test("repeated tool behavior cannot create an infinite loop", async () => {
     runFor({ workspace, user: owner }),
     (error) => error.code === "AGENT_STEP_LIMIT_EXCEEDED"
   );
-  assert.equal(providerCalls, 5);
+  assert.equal(providerCalls, MAX_AGENT_STEPS);
 });
 
 test("prompt-injection text remains labeled untrusted observation data", async () => {
