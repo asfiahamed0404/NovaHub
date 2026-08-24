@@ -11,6 +11,7 @@ import InviteWorkspaceDialog from "../components/InviteWorkspaceDialog.jsx";
 import ThemeSelector from "../components/ThemeSelector.jsx";
 import WorkspaceMessages from "../components/WorkspaceMessages.jsx";
 import AiSummaryTrigger from "../components/AiSummaryTrigger.jsx";
+import AskNovaTrigger from "../components/AskNovaTrigger.jsx";
 import { useLiveReadTracker } from "../hooks/useLiveReadTracker.js";
 
 import api from "../api/axios.js";
@@ -208,6 +209,8 @@ function WorkspacePage() {
                 missedCount={missedCount}
                 onReadStateRefresh={fetchReadState}
               />
+
+              <AskNovaTrigger workspaceId={workspaceId} />
 
               <button
                 type="button"

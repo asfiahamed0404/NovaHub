@@ -16,6 +16,16 @@
     "test:integration:aisummary": "node --test --test-concurrency=1 tests/integration/aiSummary.integration.test.js",
     "test:integration:aisummary:docker": "node scripts/runAiSummaryIntegrationTests.js",
     "test:integration:entitlements": "node --test --test-concurrency=1 tests/integration/rolePlanEntitlements.integration.test.js",
+    "test:integration:workspace-memory": "node --test --test-concurrency=1 tests/integration/workspaceMemory.integration.test.js",
+    "test:integration:workspace-memory:docker": "node scripts/runWorkspaceMemoryIntegrationTests.js",
+    "test:integration:workspace-mcp": "node --test --test-concurrency=1 tests/integration/workspaceMcp.integration.test.js",
+    "test:integration:workspace-mcp:docker": "node scripts/runWorkspaceMcpIntegrationTests.js",
+    "test:integration:workspace-agent": "node --test --test-concurrency=1 tests/integration/workspaceAgent.integration.test.js",
+    "test:integration:workspace-agent:docker": "node scripts/runWorkspaceAgentIntegrationTests.js",
+    "test:integration:workspace-agent-route": "node --test --test-concurrency=1 tests/integration/workspaceAgentRoute.integration.test.js",
+    "test:integration:workspace-agent-route:docker": "node scripts/runWorkspaceAgentRouteIntegrationTests.js",
+    "test:integration:approved-memory": "node --test --test-concurrency=1 tests/integration/approvedMemoryRoute.integration.test.js",
+    "test:integration:approved-memory:docker": "node scripts/runApprovedMemoryRouteIntegrationTests.js",
     "admin:promote": "node scripts/promoteAdmin.js",
     "user:set-plan": "node scripts/setUserPlan.js"
   },
@@ -27,13 +37,16 @@
     "node": "24.x"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.3",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.14",

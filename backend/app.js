@@ -49,6 +49,9 @@ const getInvitationRequestType = (originalUrl) => {
   return null;
 };
 
+const isAiRequest = (originalUrl) =>
+  /^\/api\/workspaces\/[^/]+\/ai(?:[/?]|$)/i.test(originalUrl);
+
 app.use(
   "/api/workspaces/:workspaceId/invitations",
   preventInvitationCaching
@@ -86,8 +89,9 @@ app.use((req, res, next) => {
 app.use((error, req, res, next) => {
   const invitationRequestType =
     getInvitationRequestType(req.originalUrl);
+  const aiRequest = isAiRequest(req.originalUrl);
 
-  if (!invitationRequestType || res.headersSent) {
+  if ((!invitationRequestType && !aiRequest) || res.headersSent) {
     return next(error);
   }
 
@@ -110,8 +114,19 @@ app.use((error, req, res, next) => {
     error.type === "entity.parse.failed"
   ) {
     return res.status(400).json({
-      message: "Request body is malformed.",
-      code: "INVALID_INVITATION_REQUEST_BODY",
+      message: aiRequest
+        ? "AI request body is malformed."
+        : "Request body is malformed.",
+      code: aiRequest
+        ? "INVALID_AI_REQUEST_BODY"
+        : "INVALID_INVITATION_REQUEST_BODY",
+    });
+  }
+
+  if (aiRequest) {
+    return res.status(500).json({
+      message: "Unable to process the AI request.",
+      code: "AI_REQUEST_FAILED",
     });
   }
 
