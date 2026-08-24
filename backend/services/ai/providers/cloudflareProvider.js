@@ -42,16 +42,19 @@ const extractResultText = (data) => {
   return { text: null, finishReason: null };
 };
 
-export const generateSummaryWithCloudflare = async ({
+export const generateTextWithCloudflare = async ({
   systemPrompt,
   userPrompt,
   config,
+  temperature = 0.2,
+  maxTokens = 2048,
+  unconfiguredMessage = "AI service is unconfigured.",
 }) => {
   if (!config.accountId || !config.apiToken) {
     throw new AiProviderError(
       503,
       "AI_PROVIDER_UNCONFIGURED",
-      "AI summarization service is unconfigured."
+      unconfiguredMessage
     );
   }
 
@@ -62,11 +65,8 @@ export const generateSummaryWithCloudflare = async ({
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    temperature: 0.2,
-    // 2048 tokens is sufficient headroom for the structured JSON output schema
-    // (summary + decisions + actionItems + openQuestions), while remaining
-    // comfortably within free-tier Workers AI limits.
-    max_tokens: 2048,
+    temperature,
+    max_tokens: maxTokens,
   };
 
   try {
@@ -147,3 +147,19 @@ export const generateSummaryWithCloudflare = async ({
     );
   }
 };
+
+export const generateSummaryWithCloudflare = ({
+  systemPrompt,
+  userPrompt,
+  config,
+}) =>
+  generateTextWithCloudflare({
+    systemPrompt,
+    userPrompt,
+    config,
+    temperature: 0.2,
+    // Sufficient headroom for summary + structured extraction fields while
+    // remaining bounded for the existing summary feature.
+    maxTokens: 2048,
+    unconfiguredMessage: "AI summarization service is unconfigured.",
+  });
