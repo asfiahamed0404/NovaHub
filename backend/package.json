@@ -26,6 +26,7 @@
     "test:integration:workspace-agent-route:docker": "node scripts/runWorkspaceAgentRouteIntegrationTests.js",
     "test:integration:approved-memory": "node --test --test-concurrency=1 tests/integration/approvedMemoryRoute.integration.test.js",
     "test:integration:approved-memory:docker": "node scripts/runApprovedMemoryRouteIntegrationTests.js",
+    "test:integration:admin": "node --test --test-concurrency=1 tests/integration/admin.integration.test.js",
     "admin:promote": "node scripts/promoteAdmin.js",
     "user:set-plan": "node scripts/setUserPlan.js"
   },

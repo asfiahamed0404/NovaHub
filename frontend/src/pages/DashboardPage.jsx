@@ -1,4 +1,5 @@
 import { useAuth } from "../context/AuthContext.jsx";
+import { Link } from "react-router";
 import WorkspaceList from "../components/WorkspaceList.jsx";
 import CreateWorkspaceForm from "../components/CreateWorkspaceForm.jsx";
 import { useState } from "react";
@@ -6,6 +7,7 @@ import JoinWorkspaceForm from "../components/JoinWorkspaceForm.jsx";
 import {
   InviteIcon,
   LogoutIcon,
+  UsersIcon,
 } from "../components/Icons.jsx";
 import NovaHubLogo from "../components/NovaHubLogo.jsx";
 import ThemeSelector from "../components/ThemeSelector.jsx";
@@ -51,6 +53,17 @@ function DashboardPage() {
             </div>
 
             <ThemeSelector compact />
+
+            {user.role === "admin" && (
+              <Link
+                to="/admin"
+                className="button button-secondary px-3 sm:px-4"
+                aria-label="Open NovaHub Admin Console"
+              >
+                <UsersIcon className="size-4" />
+                <span className="hidden sm:inline">Admin</span>
+              </Link>
+            )}
 
             <button
               type="button"
