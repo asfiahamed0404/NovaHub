@@ -18,6 +18,8 @@
     "test:integration:entitlements": "node --test --test-concurrency=1 tests/integration/rolePlanEntitlements.integration.test.js",
     "test:integration:workspace-memory": "node --test --test-concurrency=1 tests/integration/workspaceMemory.integration.test.js",
     "test:integration:workspace-memory:docker": "node scripts/runWorkspaceMemoryIntegrationTests.js",
+    "test:integration:workspace-mcp": "node --test --test-concurrency=1 tests/integration/workspaceMcp.integration.test.js",
+    "test:integration:workspace-mcp:docker": "node scripts/runWorkspaceMcpIntegrationTests.js",
     "admin:promote": "node scripts/promoteAdmin.js",
     "user:set-plan": "node scripts/setUserPlan.js"
   },

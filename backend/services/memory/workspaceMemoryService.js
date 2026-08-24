@@ -17,17 +17,32 @@ export const createWorkspaceMemory = ({
     importance,
   });
 
-export const listWorkspaceMemories = ({ workspaceId, type }) => {
+export const listWorkspaceMemories = ({
+  workspaceId,
+  type,
+  importance,
+  limit,
+}) => {
   const workspaceFilter = { workspace: workspaceId };
 
   if (type !== undefined) {
     workspaceFilter.type = type;
   }
 
-  return WorkspaceMemory.find(workspaceFilter).sort({
+  if (importance !== undefined) {
+    workspaceFilter.importance = importance;
+  }
+
+  const query = WorkspaceMemory.find(workspaceFilter).sort({
     createdAt: -1,
     _id: -1,
   });
+
+  if (limit !== undefined) {
+    query.limit(limit);
+  }
+
+  return query;
 };
 
 export const getWorkspaceMemoryById = ({
