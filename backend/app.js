@@ -73,7 +73,15 @@ app.use("/api/workspaces/:workspaceId/ai", aiRoutes);
 app.use("/api/invitations", invitationRoutes);
 app.use("/api/admin", adminRoutes);
 
-// Test Route
+// Health Route
+app.get("/health", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    service: "novahub-backend",
+  });
+});
+
+// Root Route
 app.get("/", (req, res) => {
   res.send("NovaHub API is running 🚀");
 });
