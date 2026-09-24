@@ -1,14 +1,18 @@
-name: CI Validation
+name: Production CI/CD
 
 on:
   pull_request:
     branches:
       - main
 
+  push:
+    branches:
+      - main
+
   workflow_dispatch:
     inputs:
       component:
-        description: "Component to validate"
+        description: "Component to validate and deploy (deployments require the main branch)"
         type: choice
         required: true
         default: "both"
@@ -17,22 +21,19 @@ on:
           - backend
           - frontend
 
+# Pull-request runs may supersede older runs for the same ref. Production runs
+# share one non-cancelling group so deployments cannot overlap.
 concurrency:
-  group: novahub-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('novahub-ci-{0}', github.ref) || 'novahub-production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-
-  # ============================================================
-  # JOB 1 - Detect changed components
-  # ============================================================
   detect-changes:
     name: Detect Changed Components
     runs-on: ubuntu-latest
-
     outputs:
       backend_changed: ${{ steps.changes.outputs.backend_changed }}
       frontend_changed: ${{ steps.changes.outputs.frontend_changed }}
@@ -52,26 +53,18 @@ jobs:
 
           ZERO_SHA="0000000000000000000000000000000000000000"
 
-          # ------------------------------------------------------
-          # Manual workflow run
-          # ------------------------------------------------------
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-
             COMPONENT="${{ inputs.component }}"
-
-            echo "Manual validation requested for: $COMPONENT"
 
             case "$COMPONENT" in
               both)
                 echo "backend_changed=true" >> "$GITHUB_OUTPUT"
                 echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
                 ;;
-
               backend)
                 echo "backend_changed=true" >> "$GITHUB_OUTPUT"
                 echo "frontend_changed=false" >> "$GITHUB_OUTPUT"
                 ;;
-
               frontend)
                 echo "backend_changed=false" >> "$GITHUB_OUTPUT"
                 echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
@@ -79,145 +72,76 @@ jobs:
             esac
 
             echo "workflow_changed=false" >> "$GITHUB_OUTPUT"
-
             exit 0
           fi
 
-          # ------------------------------------------------------
-          # Pull Request
-          # ------------------------------------------------------
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-
             BEFORE="${{ github.event.pull_request.base.sha }}"
             AFTER="${{ github.event.pull_request.head.sha }}"
-
           else
-
-            # ----------------------------------------------------
-            # Push to main
-            # ----------------------------------------------------
             BEFORE="${{ github.event.before }}"
             AFTER="${{ github.sha }}"
-
           fi
 
-          echo "Comparing:"
-          echo "$BEFORE -> $AFTER"
+          echo "Comparing $BEFORE -> $AFTER"
 
-          # ------------------------------------------------------
-          # Safety for unusual initial/force push
-          # ------------------------------------------------------
           if [ "$BEFORE" = "$ZERO_SHA" ]; then
-
-            echo "Zero BEFORE SHA detected."
-            echo "Treating backend, frontend and workflow as changed."
-
             echo "backend_changed=true" >> "$GITHUB_OUTPUT"
             echo "frontend_changed=true" >> "$GITHUB_OUTPUT"
             echo "workflow_changed=true" >> "$GITHUB_OUTPUT"
-
             exit 0
           fi
 
-          # ------------------------------------------------------
-          # Find changed files
-          # ------------------------------------------------------
           CHANGED_FILES=$(git diff --name-only "$BEFORE" "$AFTER")
-
-          echo ""
           echo "Changed files:"
           echo "$CHANGED_FILES"
-          echo ""
 
-          BACKEND_CHANGED=false
-          FRONTEND_CHANGED=false
-          WORKFLOW_CHANGED=false
-
-          # ------------------------------------------------------
-          # Backend application changes
-          #
-          # Ignore:
-          # - Markdown files
-          # - backend/docs/
-          # ------------------------------------------------------
           BACKEND_APP=$(echo "$CHANGED_FILES" \
             | grep -E '^backend/' \
             | grep -vE '(\.md$|^backend/docs/)' \
             || true)
 
-          # ------------------------------------------------------
-          # Frontend application changes
-          #
-          # Ignore:
-          # - Markdown files
-          # - frontend/docs/
-          # ------------------------------------------------------
           FRONTEND_APP=$(echo "$CHANGED_FILES" \
             | grep -E '^frontend/' \
             | grep -vE '(\.md$|^frontend/docs/)' \
             || true)
 
-          # ------------------------------------------------------
-          # Workflow changed
-          # ------------------------------------------------------
           WORKFLOW_FILE=$(echo "$CHANGED_FILES" \
             | grep -xF '.github/workflows/production-deploy.yml' \
             || true)
 
+          BACKEND_CHANGED=false
+          FRONTEND_CHANGED=false
+          WORKFLOW_CHANGED=false
+
           if [ -n "$BACKEND_APP" ]; then
             BACKEND_CHANGED=true
-
-            echo "Backend application changes:"
-            echo "$BACKEND_APP"
-            echo ""
           fi
 
           if [ -n "$FRONTEND_APP" ]; then
             FRONTEND_CHANGED=true
-
-            echo "Frontend application changes:"
-            echo "$FRONTEND_APP"
-            echo ""
           fi
 
           if [ -n "$WORKFLOW_FILE" ]; then
             WORKFLOW_CHANGED=true
-
-            echo "CI workflow changed."
-            echo ""
           fi
 
-          # ------------------------------------------------------
-          # Export results
-          # ------------------------------------------------------
           echo "backend_changed=$BACKEND_CHANGED" >> "$GITHUB_OUTPUT"
           echo "frontend_changed=$FRONTEND_CHANGED" >> "$GITHUB_OUTPUT"
           echo "workflow_changed=$WORKFLOW_CHANGED" >> "$GITHUB_OUTPUT"
 
       - name: Change summary
         run: |
-          echo "============================================"
-          echo " NovaHub Change Detection"
-          echo "============================================"
           echo "Backend changed  : ${{ steps.changes.outputs.backend_changed }}"
           echo "Frontend changed : ${{ steps.changes.outputs.frontend_changed }}"
           echo "Workflow changed : ${{ steps.changes.outputs.workflow_changed }}"
-          echo "============================================"
 
-
-  # ============================================================
-  # JOB 2 - Backend validation
-  # ============================================================
   validate-backend:
     name: Validate Backend
-
-    needs:
-      - detect-changes
-
+    needs: detect-changes
     if: |
       needs.detect-changes.outputs.backend_changed == 'true' ||
       needs.detect-changes.outputs.workflow_changed == 'true'
-
     runs-on: ubuntu-latest
 
     steps:
@@ -232,52 +156,65 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+        working-directory: backend
+        run: npm ci
 
       - name: Syntax check
+        working-directory: backend
         run: |
-          cd backend
           node --check server.js
           node --check app.js
 
       - name: Security audit
-        run: |
-          cd backend
-          npm audit
+        working-directory: backend
+        run: npm audit
 
       - name: ReadState integration tests
-        run: |
-          cd backend
-          npm run test:integration:readstate:docker
+        working-directory: backend
+        run: npm run test:integration:readstate:docker
 
       - name: AI Summary integration tests
-        run: |
-          cd backend
-          npm run test:integration:aisummary:docker
+        working-directory: backend
+        run: npm run test:integration:aisummary:docker
 
       - name: Invitation integration tests
-        run: |
-          cd backend
-          npm run test:integration:invitations:all:docker
+        working-directory: backend
+        run: npm run test:integration:invitations:all:docker
 
-      - name: Role / Plan / Entitlements integration tests
+      - name: Workspace Memory integration tests
+        working-directory: backend
+        run: npm run test:integration:workspace-memory:docker
+
+      - name: Workspace MCP integration tests
+        working-directory: backend
+        run: npm run test:integration:workspace-mcp:docker
+
+      - name: Workspace Agent integration tests
+        working-directory: backend
+        run: npm run test:integration:workspace-agent:docker
+
+      - name: Workspace Agent route integration tests
+        working-directory: backend
+        run: npm run test:integration:workspace-agent-route:docker
+
+      - name: Approved Memory route integration tests
+        working-directory: backend
+        run: npm run test:integration:approved-memory:docker
+
+      - name: Role / Plan / Entitlements and Admin integration tests
+        shell: bash
         run: |
           set -euo pipefail
-
           cd backend
 
           COMPOSE_FILE="tests/integration/docker-compose.yml"
           COMPOSE_PROJECT="novahub-entitlement-tests"
-
           DB_NAME="novahub_entitlements_test"
-
           TEST_URI="mongodb://127.0.0.1:27019/${DB_NAME}?replicaSet=rs0&directConnection=true"
+          ADMIN_DB_NAME="novahub_admin_test"
+          ADMIN_TEST_URI="mongodb://127.0.0.1:27019/${ADMIN_DB_NAME}?replicaSet=rs0&directConnection=true"
 
           cleanup() {
-            echo "Cleaning up MongoDB integration-test environment..."
-
             docker compose \
               -f "$COMPOSE_FILE" \
               --project-name "$COMPOSE_PROJECT" \
@@ -286,50 +223,32 @@ jobs:
 
           trap cleanup EXIT
 
-          echo "Starting MongoDB replica set..."
-
           docker compose \
             -f "$COMPOSE_FILE" \
             --project-name "$COMPOSE_PROJECT" \
             up --detach --wait --wait-timeout 120
 
-          echo "Initializing replica set..."
-
           docker compose \
             -f "$COMPOSE_FILE" \
             --project-name "$COMPOSE_PROJECT" \
             exec -T mongo \
-            mongosh \
-            --quiet \
-            --port 27019 \
-            --eval \
+            mongosh --quiet --port 27019 --eval \
             'try { rs.status() } catch (e) { rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "localhost:27019" }] }) }'
 
-          echo "Waiting for writable MongoDB primary..."
-
           PRIMARY_READY=0
-
           for attempt in $(seq 1 60); do
-
             if docker compose \
               -f "$COMPOSE_FILE" \
               --project-name "$COMPOSE_PROJECT" \
               exec -T mongo \
-              mongosh \
-              --quiet \
-              --port 27019 \
+              mongosh --quiet --port 27019 \
               --eval 'quit(db.hello().isWritablePrimary ? 0 : 2)' \
               2>/dev/null; then
-
-              echo "Replica-set primary is ready."
-
               PRIMARY_READY=1
-
               break
             fi
 
-            echo "Waiting for replica-set primary... attempt $attempt/60"
-
+            echo "Waiting for replica-set primary: $attempt/60"
             sleep 1
           done
 
@@ -338,29 +257,22 @@ jobs:
             exit 1
           fi
 
-          echo "Running Role / Plan / Entitlements tests..."
-
           TEST_MONGO_URI="$TEST_URI" \
           CONFIRM_ENTITLEMENTS_TEST_DATABASE="$DB_NAME" \
-          node \
-            --test \
-            --test-concurrency=1 \
+          node --test --test-concurrency=1 \
             tests/integration/rolePlanEntitlements.integration.test.js
 
+          TEST_MONGO_URI="$ADMIN_TEST_URI" \
+          CONFIRM_ADMIN_TEST_DATABASE="$ADMIN_DB_NAME" \
+          node --test --test-concurrency=1 \
+            tests/integration/admin.integration.test.js
 
-  # ============================================================
-  # JOB 3 - Frontend validation
-  # ============================================================
   validate-frontend:
     name: Validate Frontend
-
-    needs:
-      - detect-changes
-
+    needs: detect-changes
     if: |
       needs.detect-changes.outputs.frontend_changed == 'true' ||
       needs.detect-changes.outputs.workflow_changed == 'true'
-
     runs-on: ubuntu-latest
 
     steps:
@@ -375,115 +287,237 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
-        run: |
-          cd frontend
-          npm ci
+        working-directory: frontend
+        run: npm ci
 
       - name: Run frontend tests
-        run: |
-          cd frontend
-          npm test
+        working-directory: frontend
+        run: npm test
 
       - name: Lint frontend
-        run: |
-          cd frontend
-          npm run lint
+        working-directory: frontend
+        run: npm run lint
 
       - name: Build frontend
-        run: |
-          cd frontend
-          npm run build
+        working-directory: frontend
+        run: npm run build
 
       - name: Security audit
-        run: |
-          cd frontend
-          npm audit
+        working-directory: frontend
+        run: npm audit
 
-
-  # ============================================================
-  # JOB 4 - Final CI Gate
-  #
-  # This becomes the SINGLE required GitHub branch protection
-  # check.
-  #
-  # Backend/frontend validation can legitimately be "skipped"
-  # when that component did not change.
-  #
-  # Failures are NOT accepted.
-  # ============================================================
   ci-gate:
     name: CI Gate
-
     needs:
       - detect-changes
       - validate-backend
       - validate-frontend
-
     if: always()
-
     runs-on: ubuntu-latest
 
     steps:
-      - name: Show CI results
+      - name: Verify validation results
+        shell: bash
         run: |
-          echo "============================================"
-          echo " NovaHub CI Results"
-          echo "============================================"
-          echo "Change detection     : ${{ needs.detect-changes.result }}"
-          echo "Backend validation   : ${{ needs.validate-backend.result }}"
-          echo "Frontend validation  : ${{ needs.validate-frontend.result }}"
-          echo "============================================"
+          set -euo pipefail
 
-      - name: Verify change detection
-        run: |
-          if [ "${{ needs.detect-changes.result }}" != "success" ]; then
+          DETECT_RESULT="${{ needs.detect-changes.result }}"
+          BACKEND_RESULT="${{ needs.validate-backend.result }}"
+          FRONTEND_RESULT="${{ needs.validate-frontend.result }}"
+
+          echo "Change detection   : $DETECT_RESULT"
+          echo "Backend validation : $BACKEND_RESULT"
+          echo "Frontend validation: $FRONTEND_RESULT"
+
+          if [ "$DETECT_RESULT" != "success" ]; then
             echo "ERROR: Change detection failed."
             exit 1
           fi
 
-          echo "Change detection passed."
-
-      - name: Verify backend validation
-        run: |
-          BACKEND_RESULT="${{ needs.validate-backend.result }}"
-
-          echo "Backend result: $BACKEND_RESULT"
-
-          if [ "$BACKEND_RESULT" != "success" ] \
-          && [ "$BACKEND_RESULT" != "skipped" ]; then
-
+          if [ "$BACKEND_RESULT" != "success" ] && [ "$BACKEND_RESULT" != "skipped" ]; then
             echo "ERROR: Backend validation failed."
             exit 1
           fi
 
-          if [ "$BACKEND_RESULT" = "skipped" ]; then
-            echo "Backend validation skipped because backend did not change."
-          else
-            echo "Backend validation passed."
-          fi
-
-      - name: Verify frontend validation
-        run: |
-          FRONTEND_RESULT="${{ needs.validate-frontend.result }}"
-
-          echo "Frontend result: $FRONTEND_RESULT"
-
-          if [ "$FRONTEND_RESULT" != "success" ] \
-          && [ "$FRONTEND_RESULT" != "skipped" ]; then
-
+          if [ "$FRONTEND_RESULT" != "success" ] && [ "$FRONTEND_RESULT" != "skipped" ]; then
             echo "ERROR: Frontend validation failed."
             exit 1
           fi
 
-          if [ "$FRONTEND_RESULT" = "skipped" ]; then
-            echo "Frontend validation skipped because frontend did not change."
-          else
-            echo "Frontend validation passed."
+  deploy-backend:
+    name: Deploy Backend (Cloud Run)
+    needs:
+      - detect-changes
+      - validate-backend
+      - ci-gate
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.detect-changes.outputs.backend_changed == 'true' &&
+      needs.validate-backend.result == 'success' &&
+      needs.ci-gate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: novahub-asfi-0404
+      GCP_REGION: asia-south1
+      CLOUD_RUN_SERVICE: novahub-backend
+      ARTIFACT_REGISTRY_HOST: asia-south1-docker.pkg.dev
+      BACKEND_IMAGE: asia-south1-docker.pkg.dev/novahub-asfi-0404/novahub/novahub-backend
+      BACKEND_HEALTH_URL: https://novahub-backend-183612833653.asia-south1.run.app/health
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud with GitHub OIDC
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          version: ">= 416.0.0"
+
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker "$ARTIFACT_REGISTRY_HOST" --quiet
+
+      - name: Set commit image URI
+        shell: bash
+        run: echo "IMAGE_URI=${BACKEND_IMAGE}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Build and push backend image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gcloud artifacts docker images describe \
+            "$IMAGE_URI" \
+            --project "$GCP_PROJECT_ID" \
+            >/dev/null 2>&1; then
+            echo "The commit image already exists; reusing it."
+            exit 0
           fi
 
-      - name: CI passed
+          docker build \
+            --file backend/Dockerfile \
+            --tag "$IMAGE_URI" \
+            backend
+          docker push "$IMAGE_URI"
+
+      - name: Deploy exact image to Cloud Run
         run: |
-          echo "============================================"
-          echo " NovaHub CI PASSED"
-          echo " All required validations succeeded."
-          echo "============================================"
+          gcloud run deploy "$CLOUD_RUN_SERVICE" \
+            --image "$IMAGE_URI" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --platform managed \
+            --quiet
+
+      - name: Verify backend health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HEALTH_BODY=$(mktemp)
+          MAX_RETRIES=30
+          DELAY_SECONDS=10
+
+          for attempt in $(seq 1 "$MAX_RETRIES"); do
+            echo "Backend health check: $attempt/$MAX_RETRIES"
+
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --max-time 15 \
+              --output "$HEALTH_BODY" \
+              "$BACKEND_HEALTH_URL" \
+              && jq -e \
+                '.status == "ok" and .service == "novahub-backend"' \
+                "$HEALTH_BODY" >/dev/null; then
+              echo "Backend health check passed."
+              exit 0
+            fi
+
+            sleep "$DELAY_SECONDS"
+          done
+
+          echo "ERROR: Backend health check failed."
+          exit 1
+
+  deploy-frontend:
+    name: Deploy Frontend (Vercel)
+    needs:
+      - detect-changes
+      - validate-frontend
+      - ci-gate
+      - deploy-backend
+    if: |
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.detect-changes.outputs.frontend_changed == 'true' &&
+      needs.validate-frontend.result == 'success' &&
+      needs.ci-gate.result == 'success' &&
+      (needs.detect-changes.outputs.backend_changed != 'true' || needs.deploy-backend.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      FRONTEND_HEALTH_URL: https://nova-hub-sage.vercel.app/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Build and deploy frontend
+        working-directory: frontend
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: Verify frontend health
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MAX_RETRIES=15
+          DELAY_SECONDS=5
+
+          for attempt in $(seq 1 "$MAX_RETRIES"); do
+            echo "Frontend health check: $attempt/$MAX_RETRIES"
+
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --max-time 15 \
+              --output /dev/null \
+              "$FRONTEND_HEALTH_URL"; then
+              echo "Frontend health check passed."
+              exit 0
+            fi
+
+            sleep "$DELAY_SECONDS"
+          done
+
+          echo "ERROR: Frontend health check failed."
+          exit 1

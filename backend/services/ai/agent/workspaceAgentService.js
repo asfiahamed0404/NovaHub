@@ -74,7 +74,7 @@ SECURITY AND AUTHORITY RULES:
 8. Do not provide chain-of-thought or hidden reasoning.
 9. You may optionally suggest one durable workspace memory only when it is directly supported by actual MCP observations. Most answers should use null. Never propose guesses, temporary chatter, or data found only in the user's question.
 10. A memory proposal may contain only type, content, and importance. Never provide workspace, createdBy, userId, role, or sourceMessageIds. The trusted server derives provenance separately.
-11. RETRIEVAL FALLBACK: If search_workspace_messages returns no messages, or its results do not contain useful evidence for the question, use get_recent_messages as a bounded fallback when a tool step remains. Do this before returning the deterministic not-found answer. Do not repeatedly retry lexical search with guessed synonyms.
+11. RETRIEVAL FALLBACK: The server automatically combines every lexical message search with a bounded recent-message fallback when a tool step remains. Use the combined observations before answering. Do not repeatedly retry lexical search with guessed synonyms.
 
 RESPONSE PROTOCOL:
 Return ONLY one valid JSON object with no markdown or extra text.
@@ -418,6 +418,7 @@ export const runWorkspaceAgent = async ({
     let modelCallCount = 0;
     let pendingRecentMessagesFallback = false;
     let recentMessagesAttempted = false;
+    let messageSearchAttempted = false;
 
     while (modelCallCount < MAX_AGENT_MODEL_CALLS) {
       let action;
@@ -440,48 +441,69 @@ export const runWorkspaceAgent = async ({
       }
 
       if (action.action === "final") {
-        if (observations.length === 0) {
-          throw new WorkspaceAgentError(
-            502,
-            "AGENT_UNGROUNDED_FINAL",
-            "Workspace Agent attempted to answer without workspace evidence."
-          );
-        }
+        if (
+          !messageSearchAttempted &&
+          !recentMessagesAttempted &&
+          steps.length < MAX_AGENT_STEPS &&
+          allowedToolNames.has("search_workspace_messages") &&
+          modelCallCount < MAX_AGENT_MODEL_CALLS
+        ) {
+          // A model may try to finish before retrieving any messages, even
+          // after consulting workspace metadata or memories. Require one
+          // deterministic, workspace-bound message search before accepting a
+          // final answer. The MCP schema still controls and bounds the query.
+          action = {
+            action: "tool",
+            tool: "search_workspace_messages",
+            arguments: {
+              query: normalizedQuestion.slice(0, 200),
+              limit: 10,
+            },
+          };
+        } else {
+          if (observations.length === 0) {
+            throw new WorkspaceAgentError(
+              502,
+              "AGENT_UNGROUNDED_FINAL",
+              "Workspace Agent attempted to answer without workspace evidence."
+            );
+          }
 
-        let memoryProposal =
-          hasGroundingEvidence && action.memoryProposal
-            ? {
-                ...action.memoryProposal,
-                sourceMessageIds: [...observedSourceMessageIds],
+          let memoryProposal =
+            hasGroundingEvidence && action.memoryProposal
+              ? {
+                  ...action.memoryProposal,
+                  sourceMessageIds: [...observedSourceMessageIds],
+                }
+              : null;
+
+          if (memoryProposal) {
+            try {
+              const duplicateMemory = await findExactWorkspaceMemory({
+                workspaceId,
+                type: memoryProposal.type,
+                content: memoryProposal.content,
+              });
+
+              if (duplicateMemory) {
+                memoryProposal = null;
               }
-            : null;
-
-        if (memoryProposal) {
-          try {
-            const duplicateMemory = await findExactWorkspaceMemory({
-              workspaceId,
-              type: memoryProposal.type,
-              content: memoryProposal.content,
-            });
-
-            if (duplicateMemory) {
+            } catch {
+              // Duplicate verification is fail-closed for the optional proposal:
+              // preserve the grounded answer without suggesting an unchecked save.
               memoryProposal = null;
             }
-          } catch {
-            // Duplicate verification is fail-closed for the optional proposal:
-            // preserve the grounded answer without suggesting an unchecked save.
-            memoryProposal = null;
           }
-        }
 
-        return {
-          answer: hasGroundingEvidence
-            ? action.answer
-            : GROUNDED_NOT_FOUND_ANSWER,
-          steps,
-          toolsUsed: [...new Set(toolsUsed)],
-          memoryProposal,
-        };
+          return {
+            answer: hasGroundingEvidence
+              ? action.answer
+              : GROUNDED_NOT_FOUND_ANSWER,
+            steps,
+            toolsUsed: [...new Set(toolsUsed)],
+            memoryProposal,
+          };
+        }
       }
 
       if (steps.length >= MAX_AGENT_STEPS) {
@@ -561,16 +583,19 @@ export const runWorkspaceAgent = async ({
         recentMessagesAttempted = true;
       }
 
+      if (action.tool === "search_workspace_messages") {
+        messageSearchAttempted = true;
+      }
+
       if (
         action.tool === "search_workspace_messages" &&
-        !evidenceFound &&
         steps.length < MAX_AGENT_STEPS &&
         allowedToolNames.has("get_recent_messages") &&
         !recentMessagesAttempted
       ) {
-        // A zero-result lexical search always receives exactly one bounded
-        // fallback through the same workspace-bound MCP client. This is a
-        // service invariant rather than a request left to model discretion.
+        // Lexical search can return a relevant but incomplete subset. Always
+        // combine it with exactly one bounded recent-message observation so
+        // completeness does not depend on the model choosing another tool.
         recentMessagesAttempted = true;
         pendingRecentMessagesFallback = true;
       }

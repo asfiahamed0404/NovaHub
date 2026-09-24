@@ -17,6 +17,45 @@ const READ_ONLY_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
 });
 
+const LEXICAL_STOP_WORDS = new Set([
+  "a",
+  "about",
+  "an",
+  "and",
+  "are",
+  "at",
+  "be",
+  "did",
+  "do",
+  "does",
+  "for",
+  "from",
+  "how",
+  "i",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "our",
+  "say",
+  "said",
+  "the",
+  "this",
+  "to",
+  "was",
+  "we",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "will",
+  "with",
+]);
+const MAX_LEXICAL_TERMS = 12;
+const MAX_LEXICAL_PREFIX_CHARS = 5;
+
 const workspaceDtoSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -100,6 +139,32 @@ const normalizeObjectId = (value, fieldName) => {
 
 const escapeRegex = (value) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const buildLexicalSearchPattern = (query) => {
+  const tokens =
+    query
+      .normalize("NFKD")
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) || [];
+  const terms = [
+    ...new Set(
+      tokens
+        .filter(
+          (token) =>
+            token.length >= 3 && !LEXICAL_STOP_WORDS.has(token)
+        )
+        .map((token) =>
+          token.slice(0, MAX_LEXICAL_PREFIX_CHARS)
+        )
+    ),
+  ].slice(0, MAX_LEXICAL_TERMS);
+
+  if (terms.length === 0) {
+    return escapeRegex(query);
+  }
+
+  return `\\b(?:${terms.map(escapeRegex).join("|")})\\w*`;
+};
 
 /**
  * Creates a read-only MCP server bound to one trusted workspace context.
@@ -218,7 +283,7 @@ export const createWorkspaceMcpServer = ({
     "search_workspace_messages",
     {
       description:
-        "Search message text in the authorized workspace using a literal lexical query.",
+        "Search message text in the authorized workspace using bounded, case-insensitive lexical terms.",
       inputSchema: z
         .object({
           query: z.string().trim().min(1).max(200),
@@ -234,11 +299,11 @@ export const createWorkspaceMcpServer = ({
     },
     async ({ query, limit }) => {
       try {
-        const escapedQuery = escapeRegex(query);
+        const lexicalPattern = buildLexicalSearchPattern(query);
         const messages = await Message.find({
           workspace: trustedContext.workspaceId,
           content: {
-            $regex: escapedQuery,
+            $regex: lexicalPattern,
             $options: "i",
           },
         })
