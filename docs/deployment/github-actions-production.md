@@ -1,8 +1,9 @@
 # NovaHub production CI/CD
 
 The production workflow is `.github/workflows/production-deploy.yml`. It
-validates pull requests and deploys path-selected application changes after
-they reach `main`.
+validates path-selected application changes and deploys the backend to Cloud
+Run when backend application code reaches `main`. The frontend is deployed
+independently by Vercel's Git integration when `main` changes.
 
 ## Production targets
 
@@ -20,11 +21,13 @@ Railway is not part of the production deployment path.
 | Event | Ref | Behavior |
 |---|---|---|
 | `pull_request` | Targeting `main` | Detect and validate changed components; never deploy |
-| `push` | `main` only | Detect, validate, and deploy changed application components |
-| `workflow_dispatch` | Any selectable ref | Validate the selected component; deploy only when the selected ref is `main` |
+| `push` | `main` only | Detect and validate changed components; GitHub Actions deploys only changed backend code |
+| `workflow_dispatch` | Any selectable ref | Validate the selected component; GitHub Actions deploys the backend only when selected on `main` |
 
 Manual dispatch accepts `both`, `backend`, or `frontend`. Selecting a non-main
-ref is intentionally validation-only.
+ref is intentionally validation-only. Selecting `frontend` is validation-only
+even on `main`; selecting `both` on `main` can deploy the backend after
+validation. Manual dispatch does not trigger a Vercel deployment.
 
 ## Path-aware behavior
 
@@ -42,17 +45,23 @@ Change detection compares the entire event range, not only `HEAD~1`:
   not deploy either application.
 - Documentation-only changes do not validate or deploy an application.
 
-| Changed paths | Validation | Deployment order |
+| Changed paths | GitHub Actions validation | GitHub Actions deployment |
 |---|---|---|
 | Backend only | Backend | Cloud Run, then backend health check |
-| Frontend only | Frontend | Vercel, then frontend health check |
-| Backend and frontend | Both | Cloud Run, backend health check, then Vercel |
+| Frontend only | Frontend | None |
+| Backend and frontend | Both | Cloud Run, then backend health check |
 | Documentation only | Neither | None |
 | Workflow only | Both | None |
 
-All production-capable runs use the `novahub-production` concurrency group
-with cancellation disabled. A newer production run queues instead of
-interrupting an in-progress deployment.
+For a push to `main`, Vercel's connected Git integration handles frontend
+production deployment separately. GitHub Actions path detection does not
+control Vercel's Git-triggered builds. Whether a docs-only or workflow-only
+push creates a Vercel deployment depends on the Vercel project's settings.
+
+All production-capable GitHub Actions runs use the `novahub-production`
+concurrency group with cancellation disabled. A newer run queues instead of
+interrupting an in-progress backend deployment. This does not sequence or
+gate Vercel deployments.
 
 ## Validation before deployment
 
@@ -79,8 +88,14 @@ Frontend validation uses Node 24 and runs `npm ci`, `npm test`, `npm run lint`,
 `npm run build`, and `npm audit`.
 
 When both applications change, the CI gate waits for both validation jobs.
-Cloud Run deployment starts only after that gate succeeds. Vercel deployment
-then waits for the backend deployment and health check.
+Cloud Run deployment starts only after that gate succeeds. Frontend production
+deployment is independent: `GitHub main` → Vercel Git integration → automatic
+Vercel production deployment. It does not wait for the GitHub Actions CI gate
+or Cloud Run health check.
+
+The backend path is `GitHub main` → GitHub Actions → validation → Docker
+build → Artifact Registry → Cloud Run → health check. Pull requests run
+validation but do not cause a production deployment from GitHub Actions.
 
 ## Backend image deployment
 
@@ -117,15 +132,8 @@ Create these repository Actions variables:
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full provider resource name: `projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<POOL_ID>/providers/<PROVIDER_ID>` |
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | Email of the dedicated GitHub deployment service account |
 
-Create these repository Actions secrets for Vercel:
-
-| Secret | Value |
-|---|---|
-| `VERCEL_TOKEN` | Vercel access token used by the CLI |
-| `VERCEL_ORG_ID` | Vercel team or user ID |
-| `VERCEL_PROJECT_ID` | NovaHub frontend project ID |
-
-There is no Google service-account JSON secret. Runtime values such as
+No GitHub Actions Vercel CLI secrets are required for this workflow. There is
+no Google service-account JSON secret. Runtime values such as
 `MONGO_URI`, `JWT_SECRET`, and `CLOUDFLARE_API_TOKEN` remain in Cloud Run and
 Secret Manager and are not copied into GitHub.
 
@@ -253,26 +261,30 @@ Secret Manager Secret Accessor access to the runtime secrets it consumes.
 
 ## Platform settings before enabling deployment
 
-1. Add the two GitHub variables and three Vercel secrets above.
+1. Add the two GitHub variables above.
 2. Confirm the Artifact Registry repository already exists at
    `asia-south1-docker.pkg.dev/novahub-asfi-0404/novahub` and has immutable
    tags enabled.
 3. Confirm `novahub-backend` still has all expected variables and secret
    mappings.
 4. Disable any remaining Railway GitHub auto-deploy integration.
-5. Disable or ignore Vercel Git-triggered production deploys if GitHub Actions
-   is intended to be the sole production deployment authority.
-6. Run `workflow_dispatch` on `main` for the desired component after setup.
+5. Keep the Vercel Git integration enabled for this repository, with `main` as
+   its production branch and the frontend project settings configured.
+6. Run `workflow_dispatch` on `main` for a backend deployment after setup, if
+   needed. A frontend selection runs validation only.
 
-Do not treat a manual dispatch as a dry run: on `main`, it performs a real
-production deployment.
+Do not treat a backend manual dispatch as a dry run: on `main`, it performs a
+real Cloud Run production deployment.
 
 ## Failure behavior
 
-- A validation failure prevents every selected deployment.
+- A backend validation or CI-gate failure prevents GitHub Actions from
+  deploying the backend.
 - An Artifact Registry push or Cloud Run deploy failure marks the workflow
   failed.
-- A backend health-check failure prevents a selected frontend deployment.
-- A frontend deploy or health-check failure marks the workflow failed; a
-  successfully deployed backend remains deployed.
+- A backend health-check failure marks the workflow failed, but does not gate
+  Vercel's independent Git deployment.
+- A frontend validation failure marks the GitHub Actions workflow failed, but
+  does not itself prevent Vercel's independent Git deployment. Frontend
+  deployment failures are reported by Vercel, not this workflow.
 - Runtime configuration is not rolled back or rewritten by this workflow.
