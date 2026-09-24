@@ -1,329 +1,278 @@
-# GitHub Actions Production Deployment — NovaHub
+# NovaHub production CI/CD
 
-GitHub Actions is the **sole production deployment authority** for NovaHub.
-This document describes the change-aware CI/CD pipeline, required credentials,
-platform settings, failure behavior, and human setup steps.
+The production workflow is `.github/workflows/production-deploy.yml`. It
+validates pull requests and deploys path-selected application changes after
+they reach `main`.
 
----
+## Production targets
 
-## Workflow file
+| Component | Target |
+|---|---|
+| Backend | Cloud Run service `novahub-backend` in `novahub-asfi-0404`, region `asia-south1` |
+| Backend image | `asia-south1-docker.pkg.dev/novahub-asfi-0404/novahub/novahub-backend:<git-sha>` |
+| Backend health | `https://novahub-backend-183612833653.asia-south1.run.app/health` |
+| Frontend | Vercel production project at `https://nova-hub-sage.vercel.app` |
 
-`.github/workflows/production-deploy.yml`
-
----
+Railway is not part of the production deployment path.
 
 ## Triggers
 
-| Event | Branches | Deploys? |
+| Event | Ref | Behavior |
 |---|---|---|
-| `push` | `main` only | Yes — if relevant paths changed |
-| `workflow_dispatch` | any | Yes — for selected component |
-| `push` | `dev` or any other | **Never** |
-| `pull_request` | any | **Never** |
+| `pull_request` | Targeting `main` | Detect and validate changed components; never deploy |
+| `push` | `main` only | Detect, validate, and deploy changed application components |
+| `workflow_dispatch` | Any selectable ref | Validate the selected component; deploy only when the selected ref is `main` |
 
----
+Manual dispatch accepts `both`, `backend`, or `frontend`. Selecting a non-main
+ref is intentionally validation-only.
 
-## Change-Detection Strategy
+## Path-aware behavior
 
-The `detect-changes` job runs `git diff --name-only HEAD~1 HEAD` and emits
-three boolean outputs consumed by all downstream jobs.
+Change detection compares the entire event range, not only `HEAD~1`:
 
-| Output | True when… |
-|---|---|
-| `backend_changed` | Any file under `backend/**` changed |
-| `frontend_changed` | Any file under `frontend/**` changed |
-| `deployment_changed` | `.github/workflows/production-deploy.yml` changed |
+- Pull requests use the PR base SHA through head SHA.
+- Pushes use `github.event.before` through `github.sha`.
+- A zero `before` SHA safely treats both applications and the workflow as
+  changed.
+- `backend/**` changes, excluding Markdown and `backend/docs/**`, select the
+  backend.
+- `frontend/**` changes, excluding Markdown and `frontend/docs/**`, select the
+  frontend.
+- A change only to the production workflow validates both components but does
+  not deploy either application.
+- Documentation-only changes do not validate or deploy an application.
 
-Documentation-only files (`README.md`, `docs/**`, `*.md`, `socket-test.html`)
-do **not** set any of the three outputs, so the pipeline exits successfully
-without deploying anything.
-
----
-
-## Execution Matrix
-
-### Case A — Backend only changed
-
-```
-detect-changes
-    ↓
-validate-backend
-    ↓
-deploy-backend  (Railway deploy + health check)
-```
-
-Vercel is **not** touched.
-
-### Case B — Frontend only changed
-
-```
-detect-changes
-    ↓
-validate-frontend
-    ↓
-deploy-frontend  (Vercel deploy + health check)
-```
-
-Railway is **not** touched.
-
-### Case C — Both changed
-
-```
-detect-changes
-    ↓  (parallel)
-validate-backend          validate-frontend
-    ↓
-deploy-backend  (Railway deploy + health check)
-    ↓
-deploy-frontend  (Vercel deploy + health check)
-```
-
-Frontend deployment waits for successful backend deployment **and** its health
-check. If the backend health check fails, the frontend deployment job does not
-start.
-
-### Case D — Documentation-only change
-
-```
-detect-changes
-    → backend_changed=false, frontend_changed=false, deployment_changed=false
-    → pipeline exits successfully ("nothing to deploy")
-```
-
-No validation. No Railway. No Vercel.
-
-### Case E — Deployment workflow file changed only
-
-```
-detect-changes
-    ↓  (deployment_changed=true triggers validation)
-validate-backend  +  validate-frontend  (both run as correctness check)
-```
-
-No Railway deployment. No Vercel deployment. The currently-running production
-services are built from unchanged application code; redeploying them would be
-unnecessary and risky. Running the full validation suite confirms the updated
-workflow logic is sound against the real test suite.
-
----
-
-## Manual Dispatch (`workflow_dispatch`)
-
-The `component` input lets an operator override path detection entirely:
-
-| Input | Effect |
-|---|---|
-| `both` (default) | validate + deploy backend and frontend |
-| `backend` | validate + deploy backend only |
-| `frontend` | validate + deploy frontend only |
-
-Use cases:
-- Railway environment variable changed → dispatch `backend`
-- Vercel environment variable changed → dispatch `frontend`
-- Major release requiring full redeploy → dispatch `both`
-
----
-
-## Job Dependency Graph
-
-```
-detect-changes ──────────────────────────────────────────┐
-    │                                                     │
-    ├─→ validate-backend ──→ deploy-backend               │
-    │                              │                      │
-    └─→ validate-frontend          └──→ deploy-frontend ←─┘
-                  └─────────────────────→ deploy-frontend
-```
-
-`deploy-frontend` depends on both `validate-frontend` AND `deploy-backend`
-(when backend also changed).
-
----
-
-## Concurrency
-
-```yaml
-concurrency:
-  group: novahub-production
-  cancel-in-progress: false
-```
-
-Only one production deployment may run at a time. A second push to `main`
-while a deployment is running queues behind it rather than cancelling it,
-ensuring Railway and Vercel versions remain consistent.
-
----
-
-## Required GitHub Secrets
-
-Navigate to **Repository Settings → Secrets and variables → Actions → Secrets**:
-
-| Secret | Description | Source |
+| Changed paths | Validation | Deployment order |
 |---|---|---|
-| `RAILWAY_TOKEN` | Railway Project Token for production | Railway → Project Settings → Tokens |
-| `VERCEL_TOKEN` | Vercel Personal Access Token | Vercel → Account Settings → Tokens |
-| `VERCEL_ORG_ID` | Vercel organization/user ID | `vercel whoami` or Vercel Team Settings |
-| `VERCEL_PROJECT_ID` | Vercel project ID for the NovaHub frontend | Vercel → Project Settings → General |
+| Backend only | Backend | Cloud Run, then backend health check |
+| Frontend only | Frontend | Vercel, then frontend health check |
+| Backend and frontend | Both | Cloud Run, backend health check, then Vercel |
+| Documentation only | Neither | None |
+| Workflow only | Both | None |
 
-> [!IMPORTANT]
-> Do **not** add `MONGO_URI`, `JWT_SECRET`, or the Cloudflare Workers AI API
-> token to GitHub Secrets. These are runtime secrets that live in Railway and
-> Vercel respectively and must never pass through GitHub Actions.
+All production-capable runs use the `novahub-production` concurrency group
+with cancellation disabled. A newer production run queues instead of
+interrupting an in-progress deployment.
 
----
+## Validation before deployment
 
-## Recommended GitHub Variables
-
-Navigate to **Repository Settings → Secrets and variables → Actions → Variables**:
-
-| Variable | Default | Description |
-|---|---|---|
-| `RAILWAY_SERVICE` | `backend` | Railway service name |
-| `RAILWAY_ENVIRONMENT` | `production` | Railway environment name |
-| `BACKEND_HEALTH_URL` | `https://novahub-production.up.railway.app/` | Backend health check URL |
-| `FRONTEND_HEALTH_URL` | `https://nova-hub-sage.vercel.app/` | Frontend smoke-check URL |
-
-These are not secrets. Defaults are baked into the workflow; variables only
-need to be set if they differ from the defaults.
-
----
-
-## Validation Commands
-
-### Backend validation (`validate-backend`)
-Node 24, run from `backend/`:
+Backend validation uses Node 24 and runs:
 
 1. `npm ci`
-2. `node --check server.js` — syntax check entry point
-3. `node --check app.js` — syntax check Express app
-4. `npm audit`
-5. `npm run test:integration:readstate:docker` — ReadState tests (disposable MongoDB replica set)
-6. `npm run test:integration:aisummary:docker` — AI Summary tests (disposable MongoDB, Cloudflare mocked via `setAiProviderOverride`)
-7. `npm run test:integration:invitations:all:docker` — Invitations DB + Socket.IO tests (disposable MongoDB)
-8. Inline Docker Compose + `node --test` for `rolePlanEntitlements.integration.test.js` (disposable MongoDB)
+2. Syntax checks for `server.js` and `app.js`
+3. `npm audit`
+4. ReadState integration tests
+5. AI Summary integration tests
+6. Invitation database and Socket.IO integration tests
+7. Workspace Memory integration tests
+8. Workspace MCP integration tests
+9. Workspace Agent integration tests
+10. Workspace Agent route integration tests
+11. Approved Memory route integration tests
+12. Role / Plan / Entitlements integration tests
+13. Platform Admin integration tests
 
-All integration test databases are disposable. The Compose project names are unique per
-suite (`novahub-readstate-tests`, `novahub-aisummary-tests`, `novahub-invitation-tests`,
-`novahub-entitlement-tests`). MongoDB 8 single-node replica set on port 27019.
-Production `MONGO_URI` is never used.
+The integration suites use disposable Docker Compose MongoDB replica sets and
+do not use the production database.
 
-### Frontend validation (`validate-frontend`)
-Node 24, run from `frontend/`:
+Frontend validation uses Node 24 and runs `npm ci`, `npm test`, `npm run lint`,
+`npm run build`, and `npm audit`.
 
-1. `npm ci`
-2. `npm test` → `vitest run`
-3. `npm run lint` → `eslint .`
-4. `npm run build` → `vite build`
-5. `npm audit`
+When both applications change, the CI gate waits for both validation jobs.
+Cloud Run deployment starts only after that gate succeeds. Vercel deployment
+then waits for the backend deployment and health check.
 
----
+## Backend image deployment
 
-## Deployment Commands
+The backend deployment job:
 
-### Backend (Railway)
+1. Exchanges the GitHub OIDC token for short-lived Google credentials.
+2. Configures the Google Cloud CLI and Artifact Registry Docker credential
+   helper.
+3. Builds `backend/Dockerfile` with build context `backend/`.
+4. Tags and pushes the image with the full Git commit SHA. A rerun reuses an
+   existing image for that commit instead of moving the tag.
+5. Runs `gcloud run deploy novahub-backend --image <exact-sha-image>`.
+6. Polls `/health` until it returns HTTP 200 with
+   `{"status":"ok","service":"novahub-backend"}`.
 
-```bash
-npm install -g @railway/cli
+The deploy command changes only the container image. It deliberately does not
+use `--set-env-vars`, `--clear-env-vars`, `--set-secrets`, or
+`--clear-secrets`. Existing Cloud Run configuration therefore carries into the
+new revision, including:
 
-railway up \
-  --service "$RAILWAY_SERVICE" \
-  --environment "$RAILWAY_ENVIRONMENT" \
-  --ci
-```
+- `CLIENT_URL`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_AI_MODEL`
+- the `MONGO_URI` Secret Manager mapping
+- the `JWT_SECRET` Secret Manager mapping
+- the `CLOUDFLARE_API_TOKEN` Secret Manager mapping
 
-Authenticated via `RAILWAY_TOKEN` environment variable. Executed from the
-repository root; Railway's existing Root Directory setting (`backend`) handles
-path selection. No application secrets are passed.
+## GitHub configuration
 
-**Health check** — polls `BACKEND_HEALTH_URL` up to 30 times with 10 s delay,
-15 s curl timeout. Validates HTTP 200 **and** response body containing
-`"NovaHub API is running"`.
+Create these repository Actions variables:
 
-### Frontend (Vercel)
-
-```bash
-npm install -g vercel
-
-# Run from frontend/
-vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-vercel build --prod --token="$VERCEL_TOKEN"
-vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
-```
-
-`VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` are exposed as job environment
-variables from GitHub Secrets. Production environment variables (`VITE_API_URL`,
-`VITE_SOCKET_URL`, `VITE_ENABLE_LEGACY_WORKSPACE_JOIN`) are managed inside
-Vercel and pulled by `vercel pull`.
-
-**Health check** — polls `FRONTEND_HEALTH_URL` up to 15 times with 5 s delay,
-15 s curl timeout. Validates HTTP 200 **and** response body containing
-`"NovaHub"`.
-
----
-
-## Failure Matrix
-
-| Scenario | Result |
+| Variable | Value |
 |---|---|
-| Documentation-only push to main | Pipeline exits successfully — nothing deployed |
-| `detect-changes` job fails | All downstream jobs skipped (no deployment) |
-| `validate-backend` fails | `deploy-backend` blocked — nothing deployed |
-| `validate-frontend` fails | `deploy-frontend` blocked — nothing deployed |
-| `deploy-backend` step fails | `deploy-frontend` blocked (when backend+frontend both changed) |
-| Backend health check fails | `deploy-frontend` blocked (when backend+frontend both changed) |
-| `deploy-frontend` step fails | Backend already deployed and healthy; frontend fails visibly |
-| Frontend health check fails | Workflow marked failed — frontend may or may not be serving |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full provider resource name: `projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/<POOL_ID>/providers/<PROVIDER_ID>` |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | Email of the dedicated GitHub deployment service account |
 
----
+Create these repository Actions secrets for Vercel:
 
-## One-Time Platform Settings
+| Secret | Value |
+|---|---|
+| `VERCEL_TOKEN` | Vercel access token used by the CLI |
+| `VERCEL_ORG_ID` | Vercel team or user ID |
+| `VERCEL_PROJECT_ID` | NovaHub frontend project ID |
 
-> [!IMPORTANT]
-> These settings must be changed **before** merging the workflow to `main`.
-> Failure to do so may cause Railway or Vercel to deploy outside of GitHub
-> Actions control.
+There is no Google service-account JSON secret. Runtime values such as
+`MONGO_URI`, `JWT_SECRET`, and `CLOUDFLARE_API_TOKEN` remain in Cloud Run and
+Secret Manager and are not copied into GitHub.
 
-### Railway
-- Dashboard → Project → backend Service → Settings → **GitHub Deployments**
-- Set **Automatic Deployments → OFF** permanently.
+## One-time Google Cloud setup
 
-### Vercel
-- Dashboard → NovaHub Project → Settings → Git → **Production Branch auto-deploy**
-- Disable / set to **Ignored** permanently.
+The repository does not prove that Workload Identity Federation resources
+already exist. Inspect Google Cloud first, then create only what is missing.
+Run the following in Google Cloud Shell as an administrator. Replace the three
+angle-bracket placeholders with identifiers you have inspected or chosen; do
+not copy placeholder text into Google Cloud.
 
-GitHub Actions remains the only entity that pushes deployments to Railway and
-Vercel. The Vercel CLI `--prebuilt --prod` flow continues to work even when
-Vercel's own Git-triggered builds are disabled.
+```bash
+PROJECT_ID="novahub-asfi-0404"
+REGION="asia-south1"
+ARTIFACT_REPOSITORY="novahub"
+GITHUB_REPOSITORY="asfiahamed0404/NovaHub"
+POOL_ID="<POOL_ID>"
+PROVIDER_ID="<PROVIDER_ID>"
+DEPLOY_SERVICE_ACCOUNT_NAME="<DEPLOY_SERVICE_ACCOUNT_NAME>"
+DEPLOY_SERVICE_ACCOUNT_EMAIL="${DEPLOY_SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
----
+gcloud config set project "$PROJECT_ID"
 
-## Security
+gcloud services enable \
+  run.googleapis.com \
+  artifactregistry.googleapis.com \
+  iamcredentials.googleapis.com \
+  sts.googleapis.com
 
-```yaml
-permissions:
-  contents: read
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+
+gcloud iam workload-identity-pools list \
+  --project="$PROJECT_ID" \
+  --location=global
+
+gcloud iam service-accounts describe "$DEPLOY_SERVICE_ACCOUNT_EMAIL" \
+  --project="$PROJECT_ID" \
+  || gcloud iam service-accounts create "$DEPLOY_SERVICE_ACCOUNT_NAME" \
+    --project="$PROJECT_ID" \
+    --display-name="NovaHub GitHub production deployer"
+
+gcloud iam workload-identity-pools describe "$POOL_ID" \
+  --project="$PROJECT_ID" \
+  --location=global \
+  || gcloud iam workload-identity-pools create "$POOL_ID" \
+    --project="$PROJECT_ID" \
+    --location=global \
+    --display-name="GitHub Actions"
+
+gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location=global \
+  --workload-identity-pool="$POOL_ID" \
+  || gcloud iam workload-identity-pools providers create-oidc "$PROVIDER_ID" \
+    --project="$PROJECT_ID" \
+    --location=global \
+    --workload-identity-pool="$POOL_ID" \
+    --display-name="NovaHub GitHub Actions" \
+    --issuer-uri="https://token.actions.githubusercontent.com" \
+    --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.ref=assertion.ref" \
+    --attribute-condition="assertion.repository == '${GITHUB_REPOSITORY}' && assertion.ref == 'refs/heads/main'"
+
+WORKLOAD_IDENTITY_POOL_NAME="$(gcloud iam workload-identity-pools describe "$POOL_ID" \
+  --project="$PROJECT_ID" \
+  --location=global \
+  --format='value(name)')"
+
+gcloud iam service-accounts add-iam-policy-binding "$DEPLOY_SERVICE_ACCOUNT_EMAIL" \
+  --project="$PROJECT_ID" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/${WORKLOAD_IDENTITY_POOL_NAME}/attribute.repository/${GITHUB_REPOSITORY}"
+
+gcloud artifacts repositories add-iam-policy-binding "$ARTIFACT_REPOSITORY" \
+  --project="$PROJECT_ID" \
+  --location="$REGION" \
+  --role="roles/artifactregistry.writer" \
+  --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT_EMAIL}"
+
+# Enforce that a Git-SHA tag cannot later be moved to a different image.
+gcloud artifacts repositories update "$ARTIFACT_REPOSITORY" \
+  --project="$PROJECT_ID" \
+  --location="$REGION" \
+  --immutable-tags
+
+gcloud run services add-iam-policy-binding novahub-backend \
+  --project="$PROJECT_ID" \
+  --region="$REGION" \
+  --role="roles/run.developer" \
+  --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT_EMAIL}"
+
+RUNTIME_SERVICE_ACCOUNT="$(gcloud run services describe novahub-backend \
+  --project="$PROJECT_ID" \
+  --region="$REGION" \
+  --format='value(spec.template.spec.serviceAccountName)')"
+
+if [ -z "$RUNTIME_SERVICE_ACCOUNT" ]; then
+  RUNTIME_SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+fi
+
+gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SERVICE_ACCOUNT" \
+  --project="$PROJECT_ID" \
+  --role="roles/iam.serviceAccountUser" \
+  --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT_EMAIL}"
+
+gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
+  --project="$PROJECT_ID" \
+  --location=global \
+  --workload-identity-pool="$POOL_ID" \
+  --format='value(name)'
 ```
 
-- Workflow-level permission is `contents: read` — the minimum needed.
-- No secrets are echoed or interpolated into log output.
-- `RAILWAY_TOKEN` is consumed only as an environment variable by the Railway
-  CLI; it is never printed.
-- Vercel secrets (`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`) are
-  set as environment variables on the deploy step only; they are not available
-  to the Vite build and cannot appear in the browser bundle.
-- Railway runtime secrets (`MONGO_URI`, `JWT_SECRET`, Cloudflare AI token)
-  are stored in Railway environment only and are never referenced in this
-  workflow.
+Put the final command's output in `GCP_WORKLOAD_IDENTITY_PROVIDER`, and put
+`$DEPLOY_SERVICE_ACCOUNT_EMAIL` in `GCP_DEPLOY_SERVICE_ACCOUNT`.
 
----
+The deployment service account needs only:
 
-## Human Setup Checklist (Before Merging main)
+- Workload Identity User on itself, granted to the repository principal set.
+- Artifact Registry Writer on the `novahub` repository. Writer also supplies
+  the image-read permission needed during deployment.
+- Cloud Run Developer on the existing `novahub-backend` service.
+- Service Account User on the Cloud Run runtime service account.
 
-- [ ] Add `RAILWAY_TOKEN` to GitHub Secrets
-- [ ] Add `VERCEL_TOKEN` to GitHub Secrets
-- [ ] Add `VERCEL_ORG_ID` to GitHub Secrets
-- [ ] Add `VERCEL_PROJECT_ID` to GitHub Secrets
-- [ ] (Optional) Set GitHub Variables: `RAILWAY_SERVICE`, `RAILWAY_ENVIRONMENT`, `BACKEND_HEALTH_URL`, `FRONTEND_HEALTH_URL`
-- [ ] Turn **OFF** Railway GitHub Auto Deploy for the `backend` service
-- [ ] Disable Vercel Git automatic production builds for the NovaHub project
-- [ ] Run `workflow_dispatch` with `component=both` as a dry-run smoke test before the first real `main` merge
+The Cloud Run runtime service account—not the GitHub deployer—must retain
+Secret Manager Secret Accessor access to the runtime secrets it consumes.
+
+## Platform settings before enabling deployment
+
+1. Add the two GitHub variables and three Vercel secrets above.
+2. Confirm the Artifact Registry repository already exists at
+   `asia-south1-docker.pkg.dev/novahub-asfi-0404/novahub` and has immutable
+   tags enabled.
+3. Confirm `novahub-backend` still has all expected variables and secret
+   mappings.
+4. Disable any remaining Railway GitHub auto-deploy integration.
+5. Disable or ignore Vercel Git-triggered production deploys if GitHub Actions
+   is intended to be the sole production deployment authority.
+6. Run `workflow_dispatch` on `main` for the desired component after setup.
+
+Do not treat a manual dispatch as a dry run: on `main`, it performs a real
+production deployment.
+
+## Failure behavior
+
+- A validation failure prevents every selected deployment.
+- An Artifact Registry push or Cloud Run deploy failure marks the workflow
+  failed.
+- A backend health-check failure prevents a selected frontend deployment.
+- A frontend deploy or health-check failure marks the workflow failed; a
+  successfully deployed backend remains deployed.
+- Runtime configuration is not rolled back or rewritten by this workflow.
