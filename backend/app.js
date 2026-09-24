@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { clientOrigin } from "./utils/clientOrigin.js";
 import authRoutes from "./routes/authRoutes.js";
 import workspaceRoutes from "./routes/workspaceRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
@@ -13,18 +14,7 @@ const app = express();
 // Middleware
 app.use(
   cors({
-    origin: (origin, callback) => {
-      const allowedOrigin =
-        process.env.CLIENT_URL;
-
-      if (!origin || origin === allowedOrigin) {
-        return callback(null, true);
-      }
-
-      return callback(
-        new Error("Not allowed by CORS")
-      );
-    },
+    origin: clientOrigin,
   })
 );
 app.use(express.json());

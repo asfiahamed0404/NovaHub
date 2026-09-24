@@ -1,178 +1,236 @@
-import { useAuth } from "../context/AuthContext.jsx";
+import { useState } from "react";
 import { Link } from "react-router";
+import { useAuth } from "../context/AuthContext.jsx";
 import WorkspaceList from "../components/WorkspaceList.jsx";
 import CreateWorkspaceForm from "../components/CreateWorkspaceForm.jsx";
-import { useState } from "react";
 import JoinWorkspaceForm from "../components/JoinWorkspaceForm.jsx";
 import {
+  ArrowRightIcon,
   InviteIcon,
   LogoutIcon,
+  MessageIcon,
+  PlusIcon,
+  SparklesIcon,
   UsersIcon,
 } from "../components/Icons.jsx";
 import NovaHubLogo from "../components/NovaHubLogo.jsx";
 import ThemeSelector from "../components/ThemeSelector.jsx";
 
 const isLegacyWorkspaceJoinEnabled =
-  import.meta.env.VITE_ENABLE_LEGACY_WORKSPACE_JOIN ===
-  "true";
+  import.meta.env.VITE_ENABLE_LEGACY_WORKSPACE_JOIN === "true";
 
 function DashboardPage() {
   const { user, logout } = useAuth();
   const [workspaces, setWorkspaces] = useState([]);
+  const firstName = user.name?.trim().split(/\s+/)[0] || "there";
+
+  const focusCreate = () => {
+    document.getElementById("workspace-name")?.focus({ preventScroll: true });
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)")
+      .matches
+      ? "instant"
+      : "smooth";
+    document
+      .getElementById("create-workspace")
+      ?.scrollIntoView({ behavior, block: "center" });
+  };
 
   return (
-    <div className="app-shell">
-      <header className="app-header sticky top-0 z-20">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-3 sm:gap-4 sm:px-6">
+    <div className="app-shell dashboard-shell">
+      <a className="admin-skip-link" href="#dashboard-main">
+        Skip to main content
+      </a>
+      <aside className="workspace-rail" aria-label="Main navigation">
+        <Link to="/dashboard" className="rail-brand" aria-label="NovaHub home">
           <NovaHubLogo />
-
-          <div className="flex min-w-0 items-center gap-1 sm:gap-3">
-            <div
-              className="flex min-w-0 items-center gap-2.5"
-              role="group"
-              aria-label={`Signed in as ${user.name}, ${user.email}`}
-            >
-              <span
-                className="profile-avatar hidden size-9 shrink-0 items-center justify-center rounded-[10px] text-sm font-semibold sm:flex"
-                aria-hidden="true"
-              >
-                {user.name?.charAt(0).toUpperCase() || "N"}
-              </span>
-
-              <span
-                className="hidden min-w-0 text-right md:block"
-                aria-hidden="true"
-              >
-                <span className="text-heading block max-w-48 truncate text-sm font-semibold">
-                  {user.name}
-                </span>
-                <span className="text-muted block max-w-48 truncate text-xs">
-                  {user.email}
-                </span>
-              </span>
-            </div>
-
-            <ThemeSelector compact />
-
-            {user.role === "admin" && (
-              <Link
-                to="/admin"
-                className="button button-secondary px-3 sm:px-4"
-                aria-label="Open NovaHub Admin Console"
-              >
-                <UsersIcon className="size-4" />
-                <span className="hidden sm:inline">Admin</span>
-              </Link>
-            )}
-
-            <button
-              type="button"
-              onClick={logout}
-              className="button button-secondary px-3 sm:px-4"
-              aria-label="Log out of NovaHub"
-            >
-              <LogoutIcon className="size-4" />
-              <span className="hidden sm:inline">Log out</span>
-            </button>
+        </Link>
+        <div className="rail-team">
+          <span className="rail-team-avatar">
+            {user.name?.charAt(0).toUpperCase() || "N"}
+          </span>
+          <div>
+            <strong>My workspace hub</strong>
+            <span>Personal account</span>
           </div>
         </div>
-      </header>
-
-      <main className="page-enter mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <section
-          className="border-theme flex flex-col gap-6 border-b pb-8 md:flex-row md:items-end md:justify-between"
-          aria-labelledby="dashboard-heading"
-        >
-          <div className="min-w-0 max-w-2xl">
-            <p className="eyebrow">
-              Workspace overview
-            </p>
-            <h1
-              id="dashboard-heading"
-              className="text-heading mt-2 break-words text-3xl font-semibold tracking-[-0.035em] sm:text-4xl"
-            >
-              Welcome, {user.name}
-            </h1>
-            <p className="text-muted mt-3 max-w-xl text-sm leading-6 sm:text-base">
-              Continue working with your teams or start a new place to
-              collaborate.
-            </p>
-          </div>
-
-          <dl className="surface-subtle grid min-w-0 gap-4 px-4 py-3 text-sm sm:grid-cols-2 md:min-w-[24rem]">
-            <div className="min-w-0">
-              <dt className="text-muted text-xs font-medium uppercase tracking-wide">
-                Email
-              </dt>
-              <dd className="text-body mt-1 break-all font-medium">
-                {user.email}
-              </dd>
-            </div>
-            <div className="border-theme min-w-0 sm:border-l sm:pl-4">
-              <dt className="text-muted text-xs font-medium uppercase tracking-wide">
-                Profile status
-              </dt>
-              <dd className="text-body mt-1 break-words font-medium">
-                {user.status}
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        <div className="mt-8 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]">
-          <WorkspaceList
-            workspaces={workspaces}
-            setWorkspaces={setWorkspaces}
-          />
-
-          <aside
-            className="grid gap-6 sm:grid-cols-2 lg:grid-cols-1"
-            aria-label="Workspace actions"
+        <p className="rail-label">WORKSPACE</p>
+        <nav className="rail-nav">
+          <Link
+            to="/dashboard"
+            className="rail-link is-active"
+            aria-current="page"
           >
-            <CreateWorkspaceForm
-              onWorkspaceCreated={(newWorkspace) => {
-                setWorkspaces((currentWorkspaces) => [
-                  ...currentWorkspaces,
-                  newWorkspace,
-                ]);
-              }}
-            />
-
-            <section
-              className="surface-panel p-5 sm:p-6"
-              aria-labelledby="secure-join-heading"
+            <MessageIcon />
+            Overview
+          </Link>
+          <a href="#workspaces-heading" className="rail-link">
+            <UsersIcon />
+            Your workspaces
+          </a>
+          <button type="button" onClick={focusCreate} className="rail-link">
+            <PlusIcon />
+            Create workspace
+          </button>
+          {user.role === "admin" && (
+            <Link
+              to="/admin"
+              className="rail-link"
+              aria-label="Open NovaHub Admin Console"
             >
-              <span className="accent-tile flex size-9 items-center justify-center rounded-[10px]">
-                <InviteIcon className="size-4" />
-              </span>
-              <h2
-                id="secure-join-heading"
-                className="text-heading mt-4 text-lg font-semibold tracking-[-0.015em]"
-              >
-                Joining a team?
-              </h2>
-              <p className="text-muted mt-2 text-sm leading-6">
-                Ask a current member for a secure invitation link, then open
-                it in this browser. You will review the workspace before
-                explicitly accepting.
-              </p>
-            </section>
-
-            {isLegacyWorkspaceJoinEnabled && (
-              <JoinWorkspaceForm
-                onWorkspaceJoined={(joinedWorkspace) => {
-                  setWorkspaces((currentWorkspaces) => [
-                    ...currentWorkspaces,
-                    joinedWorkspace,
-                  ]);
-                }}
-              />
-            )}
-          </aside>
+              <UsersIcon />
+              Admin console
+            </Link>
+          )}
+        </nav>
+        <div className="rail-note">
+          <SparklesIcon className="size-5" />
+          <strong>A little less catching up.</strong>
+          <p>
+            Find answers and turn conversations into clarity with Ask Nova,
+            inside any workspace.
+          </p>
         </div>
-      </main>
+        <div className="rail-account">
+          <span className="rail-team-avatar">
+            {user.name?.charAt(0).toUpperCase() || "N"}
+          </span>
+          <div>
+            <strong>{user.name}</strong>
+            <span>{user.email}</span>
+          </div>
+          <button
+            type="button"
+            onClick={logout}
+            aria-label="Log out of NovaHub"
+            title="Log out"
+            className="rail-logout"
+          >
+            <LogoutIcon />
+          </button>
+        </div>
+      </aside>
+
+      <div className="dashboard-body">
+        <header className="dashboard-topbar">
+          <span className="text-muted text-sm">
+            <span className="text-heading font-medium">Workspace</span>
+            <span className="mx-3 opacity-40">/</span>Overview
+          </span>
+          <ThemeSelector compact />
+        </header>
+        <main id="dashboard-main" className="page-enter dashboard-main">
+          <section
+            className="dashboard-heading"
+            aria-labelledby="dashboard-heading"
+          >
+            <div>
+              <p className="eyebrow">YOUR TEAM, IN SYNC</p>
+              <h1 id="dashboard-heading">
+                Good to see you, {firstName}
+                <span className="text-accent">.</span>
+              </h1>
+              <p className="text-muted">
+                A little more focus. A lot more progress. Pick up where your
+                team left off.
+              </p>
+            </div>
+            <button
+              className="button button-primary"
+              onClick={focusCreate}
+              type="button"
+            >
+              <PlusIcon />
+              New workspace
+            </button>
+          </section>
+
+          <section
+            className="dashboard-feature"
+            aria-labelledby="feature-heading"
+          >
+            <div className="feature-copy">
+              <span className="feature-kicker">
+                <SparklesIcon />
+                BUILT FOR BETTER TEAMWORK
+              </span>
+              <h2 id="feature-heading">
+                Great work starts with
+                <br />a shared conversation.
+              </h2>
+              <p>
+                Bring your people, ideas, and decisions together.
+                <br className="hidden sm:block" /> Nova helps you keep the
+                context.
+              </p>
+              <a href="#workspaces-heading" className="feature-link">
+                Explore your workspaces <ArrowRightIcon />
+              </a>
+            </div>
+            <div className="feature-art" aria-hidden="true">
+              <div className="orbit orbit-one" />
+              <div className="orbit orbit-two" />
+              <span className="orbit-core">
+                <SparklesIcon className="size-9" />
+              </span>
+              <span className="orbit-chip chip-conversation">
+                <MessageIcon />
+                Conversations
+              </span>
+              <span className="orbit-chip chip-context">
+                <SparklesIcon />
+                Shared context
+              </span>
+              <span className="orbit-chip chip-team">
+                <UsersIcon />
+                Your people
+              </span>
+              <span className="orbit-dot dot-one" />
+              <span className="orbit-dot dot-two" />
+            </div>
+          </section>
+
+          <div className="dashboard-content">
+            <WorkspaceList
+              workspaces={workspaces}
+              setWorkspaces={setWorkspaces}
+            />
+            <aside className="dashboard-actions" aria-label="Workspace actions">
+              <div id="create-workspace">
+                <CreateWorkspaceForm
+                  onWorkspaceCreated={(workspace) =>
+                    setWorkspaces((current) => [...current, workspace])
+                  }
+                />
+              </div>
+              <section
+                className="join-note"
+                aria-labelledby="secure-join-heading"
+              >
+                <InviteIcon className="size-5" />
+                <div>
+                  <h2 id="secure-join-heading">Already part of a team?</h2>
+                  <p>
+                    Open an invitation link from a teammate to review and join
+                    their workspace.
+                  </p>
+                </div>
+              </section>
+              {isLegacyWorkspaceJoinEnabled && (
+                <JoinWorkspaceForm
+                  onWorkspaceJoined={(workspace) =>
+                    setWorkspaces((current) => [...current, workspace])
+                  }
+                />
+              )}
+            </aside>
+          </div>
+          <footer className="dashboard-footer">
+            <span>Made for conversations that move work forward.</span>
+            <span>NovaHub · Your collaboration space</span>
+          </footer>
+        </main>
+      </div>
     </div>
   );
 }
-
 export default DashboardPage;

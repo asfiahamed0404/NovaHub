@@ -5,6 +5,7 @@ import { Server } from "socket.io";
 import connectDB from "./config/db.js";
 import app from "./app.js";
 import setupSocket from "./sockets/socketHandler.js";
+import { clientOrigin } from "./utils/clientOrigin.js";
 
 dotenv.config();
 
@@ -17,7 +18,7 @@ const startServer = async () => {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CLIENT_URL,
+      origin: clientOrigin,
       methods: ["GET", "POST"],
     },
   });

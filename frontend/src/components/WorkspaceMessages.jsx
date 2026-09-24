@@ -493,7 +493,7 @@ function WorkspaceMessages({workspaceId,onWorkspaceUpdated,onMessageActivity,}) 
 
   return (
     <section
-      className="surface-panel flex h-[70dvh] min-h-[30rem] max-h-[42rem] min-w-0 flex-col overflow-hidden"
+      className="conversation-panel surface-panel flex h-[70dvh] min-h-[30rem] max-h-[42rem] min-w-0 flex-col overflow-hidden"
       aria-labelledby="workspace-conversation-heading"
     >
       <header className="border-theme shrink-0 border-b px-5 py-4 sm:px-6">

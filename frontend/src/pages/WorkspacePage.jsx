@@ -2,11 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router";
 import { useAuth } from "../context/AuthContext.jsx";
 import NovaHubLogo from "../components/NovaHubLogo.jsx";
-import {
-  ArrowLeftIcon,
-  InviteIcon,
-  UsersIcon,
-} from "../components/Icons.jsx";
+import { ArrowLeftIcon, InviteIcon, UsersIcon } from "../components/Icons.jsx";
 import InviteWorkspaceDialog from "../components/InviteWorkspaceDialog.jsx";
 import ThemeSelector from "../components/ThemeSelector.jsx";
 import WorkspaceMessages from "../components/WorkspaceMessages.jsx";
@@ -25,14 +21,9 @@ function WorkspaceTopbar() {
         <div className="flex shrink-0 items-center gap-2">
           <ThemeSelector compact />
 
-          <Link
-            to="/dashboard"
-            className="button button-secondary shrink-0"
-          >
+          <Link to="/dashboard" className="button button-secondary shrink-0">
             <ArrowLeftIcon className="size-4" />
-            <span className="sr-only sm:not-sr-only">
-              Back to Dashboard
-            </span>
+            <span className="sr-only sm:not-sr-only">Back to Dashboard</span>
           </Link>
         </div>
       </div>
@@ -43,11 +34,12 @@ function WorkspaceTopbar() {
 function WorkspacePage() {
   const { workspaceId } = useParams();
   const navigate = useNavigate();
-  
+
   const { user, logout } = useAuth();
 
-  const { missedCount, fetchReadState, onMessageActivity } =
-    useLiveReadTracker({ workspaceId, logout });
+  const { missedCount, fetchReadState, onMessageActivity } = useLiveReadTracker(
+    { workspaceId, logout },
+  );
 
   const [workspace, setWorkspace] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,8 +47,7 @@ function WorkspacePage() {
 
   const [isLeaving, setIsLeaving] = useState(false);
   const [leaveError, setLeaveError] = useState("");
-  const [isInviteDialogOpen, setIsInviteDialogOpen] =
-    useState(false);
+  const [isInviteDialogOpen, setIsInviteDialogOpen] = useState(false);
 
   const closeInviteDialog = useCallback(() => {
     setIsInviteDialogOpen(false);
@@ -68,16 +59,11 @@ function WorkspacePage() {
         setError("");
         setIsLoading(true);
 
-        const response = await api.get(
-          `/workspaces/${workspaceId}`
-        );
+        const response = await api.get(`/workspaces/${workspaceId}`);
 
         setWorkspace(response.data.workspace);
       } catch (error) {
-        setError(
-          error.response?.data?.message ||
-            "Failed to load workspace."
-        );
+        setError(error.response?.data?.message || "Failed to load workspace.");
       } finally {
         setIsLoading(false);
       }
@@ -91,15 +77,12 @@ function WorkspacePage() {
       setLeaveError("");
       setIsLeaving(true);
 
-      await api.delete(
-        `/workspaces/${workspaceId}/leave`
-      );
+      await api.delete(`/workspaces/${workspaceId}/leave`);
 
       navigate("/dashboard");
     } catch (error) {
       setLeaveError(
-        error.response?.data?.message ||
-          "Failed to leave workspace."
+        error.response?.data?.message || "Failed to leave workspace.",
       );
     } finally {
       setIsLeaving(false);
@@ -132,16 +115,11 @@ function WorkspacePage() {
 
         <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
           <section className="surface-panel max-w-2xl p-5 sm:p-6">
-            <p className="eyebrow">
-              Workspace unavailable
-            </p>
+            <p className="eyebrow">Workspace unavailable</p>
             <h1 className="text-heading mt-2 text-xl font-semibold">
               We couldn&apos;t open this workspace
             </h1>
-            <p
-              className="feedback feedback-error mt-4"
-              role="alert"
-            >
+            <p className="feedback feedback-error mt-4" role="alert">
               {error}
             </p>
           </section>
@@ -153,19 +131,17 @@ function WorkspacePage() {
   const isCreator = user.id === workspace.createdBy._id;
 
   return (
-    <div className="app-shell">
+    <div className="app-shell workspace-page">
       <WorkspaceTopbar />
 
       <main className="page-enter mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <section
-          className="surface-panel overflow-hidden px-5 py-5 sm:px-6 sm:py-6"
+          className="workspace-overview surface-panel overflow-hidden px-5 py-5 sm:px-6 sm:py-6"
           aria-labelledby="workspace-title"
         >
           <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <p className="eyebrow">
-                Active workspace
-              </p>
+              <p className="eyebrow">Active workspace</p>
 
               <h1
                 id="workspace-title"
@@ -175,8 +151,7 @@ function WorkspacePage() {
               </h1>
 
               <p className="text-muted mt-2 max-w-3xl break-words text-sm leading-6 sm:text-base">
-                {workspace.description ||
-                  "No description yet."}
+                {workspace.description || "No description yet."}
               </p>
 
               <dl className="text-muted mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
@@ -195,9 +170,7 @@ function WorkspacePage() {
                   <UsersIcon className="icon-muted size-4 shrink-0" />
                   <dd>
                     {workspace.members.length}{" "}
-                    {workspace.members.length === 1
-                      ? "member"
-                      : "members"}
+                    {workspace.members.length === 1 ? "member" : "members"}
                   </dd>
                 </div>
               </dl>
@@ -230,22 +203,15 @@ function WorkspacePage() {
                   className="button button-danger shrink-0"
                   aria-busy={isLeaving}
                 >
-                  {isLeaving && (
-                    <span className="spinner" aria-hidden="true" />
-                  )}
-                  {isLeaving
-                    ? "Leaving..."
-                    : "Leave Workspace"}
+                  {isLeaving && <span className="spinner" aria-hidden="true" />}
+                  {isLeaving ? "Leaving..." : "Leave Workspace"}
                 </button>
               )}
             </div>
           </div>
 
           {leaveError && (
-            <p
-              className="feedback feedback-error mt-5"
-              role="alert"
-            >
+            <p className="feedback feedback-error mt-5" role="alert">
               {leaveError}
             </p>
           )}
@@ -259,7 +225,7 @@ function WorkspacePage() {
           />
 
           <aside
-            className="surface-panel flex min-w-0 flex-col overflow-hidden lg:h-[70dvh] lg:min-h-[30rem] lg:max-h-[42rem]"
+            className="workspace-members surface-panel flex min-w-0 flex-col overflow-hidden"
             aria-labelledby="workspace-members-heading"
           >
             <div className="border-theme border-b px-5 py-4">
@@ -287,26 +253,25 @@ function WorkspacePage() {
 
             <ul className="scroll-area max-h-96 space-y-3 overflow-y-auto p-4 lg:min-h-0 lg:max-h-none lg:flex-1">
               {workspace.members.map((member) => (
-                <li
-                  key={member._id}
-                  className="surface-subtle min-w-0 p-3"
-                >
-                  <p className="text-heading break-words text-sm font-semibold">
-                    {member.name}
-                  </p>
+                <li key={member._id} className="member-row min-w-0">
+                  <span className="member-avatar" aria-hidden="true">
+                    {member.name?.charAt(0).toUpperCase() || "N"}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-heading break-words text-sm font-semibold">
+                      {member.name}
+                    </p>
 
-                  <p className="text-muted mt-1 break-all text-xs leading-5">
-                    {member.email}
-                  </p>
+                    <p className="text-muted mt-1 break-all text-xs leading-5">
+                      {member.email}
+                    </p>
 
-                  <p className="border-theme text-muted mt-3 border-t pt-2 text-xs leading-5">
-                    <span className="text-body font-semibold">
-                      Profile status:
-                    </span>{" "}
-                    <span className="break-words">
-                      {member.status || "Not set"}
-                    </span>
-                  </p>
+                    {member.status && (
+                      <p className="text-muted mt-1 break-words text-xs">
+                        {member.status}
+                      </p>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
