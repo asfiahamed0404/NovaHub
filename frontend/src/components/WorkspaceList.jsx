@@ -4,9 +4,15 @@ import { Link } from "react-router";
 import api from "../api/axios.js";
 import { ArrowRightIcon, UsersIcon } from "./Icons.jsx";
 
-function WorkspaceList({workspaces,setWorkspaces,}) {
+function WorkspaceList({ workspaces, setWorkspaces }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const filteredWorkspaces = workspaces.filter((workspace) =>
+    `${workspace.name} ${workspace.description || ""}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
@@ -17,12 +23,8 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
         const response = await api.get("/workspaces");
 
         setWorkspaces(response.data.workspaces);
-
       } catch (error) {
-        setError(
-          error.response?.data?.message ||
-            "Failed to load workspaces."
-        );
+        setError(error.response?.data?.message || "Failed to load workspaces.");
       } finally {
         setIsLoading(false);
       }
@@ -33,23 +35,20 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
 
   return (
     <section
-      className="surface-panel min-w-0 p-5 sm:p-6"
+      className="workspace-library min-w-0"
       aria-labelledby="workspaces-heading"
       aria-busy={isLoading}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="eyebrow">
-            Collaboration spaces
-          </p>
           <h2
             id="workspaces-heading"
-            className="text-heading mt-2 text-xl font-semibold tracking-[-0.02em]"
+            className="text-heading text-xl font-semibold tracking-[-0.02em]"
           >
             Your Workspaces
           </h2>
           <p className="text-muted mt-2 text-sm leading-6">
-            Open a workspace to continue collaborating with your team.
+            Your people. Your projects. All in one place.
           </p>
         </div>
 
@@ -59,6 +58,26 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
             {workspaces.length === 1 ? "workspace" : "workspaces"}
           </span>
         )}
+      </div>
+
+      <div className="workspace-search">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          aria-hidden="true"
+        >
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="m16 16 4 4" />
+        </svg>
+        <input
+          type="search"
+          aria-label="Search workspaces"
+          placeholder="Find a workspace..."
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
       </div>
 
       {isLoading && (
@@ -82,31 +101,33 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
         </div>
       )}
 
-      {!isLoading &&
-        !error &&
-        workspaces.length === 0 && (
-          <div className="surface-subtle mt-6 px-5 py-8 text-center">
-            <span className="accent-tile mx-auto flex size-10 items-center justify-center rounded-[10px]">
-              <UsersIcon className="size-5" />
-            </span>
-            <h3 className="text-heading mt-4 font-semibold">
-              No workspaces yet
-            </h3>
-            <p className="text-muted mx-auto mt-2 max-w-sm text-sm leading-6">
-              Create a workspace for your team, or open a secure invitation
-              link shared by a current member.
-            </p>
-          </div>
-        )}
+      {!isLoading && !error && workspaces.length === 0 && (
+        <div className="surface-subtle mt-6 px-5 py-8 text-center">
+          <span className="accent-tile mx-auto flex size-10 items-center justify-center rounded-[10px]">
+            <UsersIcon className="size-5" />
+          </span>
+          <h3 className="text-heading mt-4 font-semibold">No workspaces yet</h3>
+          <p className="text-muted mx-auto mt-2 max-w-sm text-sm leading-6">
+            Create a workspace for your team, or open a secure invitation link
+            shared by a current member.
+          </p>
+        </div>
+      )}
 
       {!isLoading && !error && workspaces.length > 0 && (
-        <ul className="mt-6 grid gap-3 md:grid-cols-2">
-          {workspaces.map((workspace) => (
+        <ul className="mt-5 grid gap-4 md:grid-cols-2">
+          {filteredWorkspaces.map((workspace, index) => (
             <li key={workspace._id} className="min-w-0">
               <Link
                 to={`/workspaces/${workspace._id}`}
-                className="workspace-card group surface-subtle flex h-full min-w-0 flex-col p-4 motion-safe:hover:-translate-y-0.5"
+                className="workspace-card group flex h-full min-w-0 flex-col p-5 motion-safe:hover:-translate-y-0.5"
               >
+                <span
+                  className={`workspace-monogram monogram-${index % 4}`}
+                  aria-hidden="true"
+                >
+                  {workspace.name?.slice(0, 2).toUpperCase() || "WS"}
+                </span>
                 <span className="flex min-w-0 items-start justify-between gap-3">
                   <span className="text-heading min-w-0 break-words font-semibold">
                     {workspace.name}
@@ -119,7 +140,7 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
                     "Open this workspace to continue the conversation."}
                 </span>
 
-                <span className="text-muted mt-4 flex items-center gap-1.5 text-xs font-medium">
+                <span className="workspace-card-footer text-muted mt-5 flex items-center gap-1.5 text-xs font-medium">
                   <UsersIcon className="size-3.5" />
                   {workspace.members?.length ?? 0}{" "}
                   {workspace.members?.length === 1 ? "member" : "members"}
@@ -129,6 +150,26 @@ function WorkspaceList({workspaces,setWorkspaces,}) {
           ))}
         </ul>
       )}
+      {!isLoading &&
+        !error &&
+        workspaces.length > 0 &&
+        filteredWorkspaces.length === 0 && (
+          <div className="surface-subtle mt-5 p-8 text-center" role="status">
+            <h3 className="text-heading font-semibold">
+              No matching workspaces
+            </h3>
+            <p className="text-muted mt-2 text-sm">
+              Try another name or clear your search.
+            </p>
+            <button
+              type="button"
+              className="button button-secondary mt-4"
+              onClick={() => setQuery("")}
+            >
+              Clear search
+            </button>
+          </div>
+        )}
     </section>
   );
 }

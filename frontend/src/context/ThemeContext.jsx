@@ -11,8 +11,8 @@ const THEME_STORAGE_KEY = "novahub_theme";
 const SYSTEM_THEME_QUERY = "(prefers-color-scheme: dark)";
 const THEME_PREFERENCES = new Set(["light", "dark", "system"]);
 const THEME_COLORS = {
-  light: "#f3f6fb",
-  dark: "#070b14",
+  light: "#f7f8f5",
+  dark: "#141817",
 };
 
 const ThemeContext = createContext(null);
