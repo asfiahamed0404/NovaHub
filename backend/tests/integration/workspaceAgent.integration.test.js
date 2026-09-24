@@ -136,6 +136,15 @@ const setProviderSequence = (responses, calls = []) => {
   });
 };
 
+const getObservedMessages = (request) => {
+  const prompt = JSON.parse(request.userPrompt);
+
+  return prompt.observations.flatMap((observation) => {
+    const result = JSON.parse(observation.result);
+    return Array.isArray(result.messages) ? result.messages : [];
+  });
+};
+
 const runFor = ({ workspace, user, question = "What is here?" }) =>
   runWorkspaceAgent({
     workspaceId: workspace._id,
@@ -194,6 +203,7 @@ test("agent can choose get_workspace_info", async () => {
     [
       toolAction("get_workspace_info"),
       finalAction("The workspace is Agent Alpha."),
+      finalAction("The workspace is Agent Alpha."),
     ],
     calls
   );
@@ -205,9 +215,19 @@ test("agent can choose get_workspace_info", async () => {
   });
 
   assert.equal(result.answer, "The workspace is Agent Alpha.");
-  assert.deepEqual(result.toolsUsed, ["get_workspace_info"]);
+  assert.deepEqual(result.toolsUsed, [
+    "get_workspace_info",
+    "search_workspace_messages",
+    "get_recent_messages",
+  ]);
   assert.deepEqual(result.steps, [
     { step: 1, tool: "get_workspace_info", success: true },
+    {
+      step: 2,
+      tool: "search_workspace_messages",
+      success: true,
+    },
+    { step: 3, tool: "get_recent_messages", success: true },
   ]);
   assert.equal(result.memoryProposal, null);
   assert.match(calls[1].userPrompt, /Agent Alpha/);
@@ -232,7 +252,7 @@ test("agent can choose get_recent_messages", async () => {
   assert.deepEqual(result.toolsUsed, ["get_recent_messages"]);
 });
 
-test("lexical search with results can answer without recent-message fallback", async () => {
+test("lexical search results are automatically combined with recent messages", async () => {
   const owner = await makeUser("owner");
   const workspace = await makeWorkspace(owner, "Lexical hit workspace");
   await makeMessage(
@@ -257,11 +277,19 @@ test("lexical search with results can answer without recent-message fallback", a
     result.answer,
     "The deployment decision is to use Railway."
   );
-  assert.deepEqual(result.toolsUsed, ["search_workspace_messages"]);
+  assert.deepEqual(result.toolsUsed, [
+    "search_workspace_messages",
+    "get_recent_messages",
+  ]);
   assert.deepEqual(result.steps, [
     {
       step: 1,
       tool: "search_workspace_messages",
+      success: true,
+    },
+    {
+      step: 2,
+      tool: "get_recent_messages",
       success: true,
     },
   ]);
@@ -403,6 +431,260 @@ test("recent-message fallback remains bound to the current workspace", async () 
   );
 });
 
+test("repeated deployment questions remain complete across varying model tool plans", async () => {
+  const asfi = await makeUser("asfi");
+  const ahmed = await makeUser("ahmed");
+  const workspace = await makeWorkspace(
+    asfi,
+    "Reliable deployment workspace"
+  );
+  workspace.members.push(ahmed._id);
+  await workspace.save();
+  await makeMessage(
+    workspace,
+    asfi,
+    "We decided to deploy the backend on Google Cloud Run."
+  );
+  await makeMessage(
+    workspace,
+    ahmed,
+    "The frontend will be deployed on Vercel."
+  );
+
+  let initialPlanIndex = 0;
+  const calls = [];
+  setWorkspaceAgentProviderOverride(async (request) => {
+    calls.push(request);
+    const prompt = JSON.parse(request.userPrompt);
+    const observedTools = prompt.observations.map(
+      (observation) => observation.tool
+    );
+    const messages = getObservedMessages(request);
+
+    if (prompt.observations.length === 0) {
+      const plan = initialPlanIndex % 3;
+      initialPlanIndex += 1;
+
+      if (plan === 0) {
+        return toolAction("search_workspace_messages", {
+          query: "backend",
+          limit: 10,
+        });
+      }
+
+      if (plan === 1) {
+        return toolAction("get_recent_messages", { limit: 20 });
+      }
+
+      return toolAction("list_workspace_memories", {
+        type: "decision",
+      });
+    }
+
+    if (
+      observedTools.includes("list_workspace_memories") &&
+      !observedTools.includes("search_workspace_messages") &&
+      !observedTools.includes("get_recent_messages")
+    ) {
+      return finalAction("An unsupported early answer.");
+    }
+
+    const combinedContent = messages
+      .map((message) => message.content)
+      .join(" ");
+
+    assert.match(combinedContent, /Google Cloud Run/);
+    assert.match(combinedContent, /Vercel/);
+    return finalAction(
+      "We decided to deploy the backend on Google Cloud Run and the frontend on Vercel."
+    );
+  });
+
+  const results = [];
+  for (let run = 0; run < 10; run += 1) {
+    results.push(
+      await runFor({
+        workspace,
+        user: asfi,
+        question: "What did we decide about deployment?",
+      })
+    );
+  }
+
+  assert.equal(results.length, 10);
+  for (const result of results) {
+    assert.equal(
+      result.answer,
+      "We decided to deploy the backend on Google Cloud Run and the frontend on Vercel."
+    );
+  }
+  assert.ok(
+    results.some((result) =>
+      result.steps.some(
+        (step) => step.tool === "list_workspace_memories"
+      )
+    )
+  );
+  assert.ok(
+    results.every((result) =>
+      result.steps.some(
+        (step) =>
+          step.tool === "search_workspace_messages" ||
+          step.tool === "get_recent_messages"
+      )
+    )
+  );
+});
+
+test("backend deployment question retrieves Google Cloud Run", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Backend deployment");
+  await makeMessage(
+    workspace,
+    owner,
+    "We decided to deploy the backend on Google Cloud Run."
+  );
+  setWorkspaceAgentProviderOverride(async (request) => {
+    const messages = getObservedMessages(request);
+
+    if (messages.length === 0) {
+      return finalAction("An unsupported early answer.");
+    }
+
+    assert.ok(
+      messages.some((message) =>
+        message.content.includes("Google Cloud Run")
+      )
+    );
+    return finalAction("The backend is deployed on Google Cloud Run.");
+  });
+
+  const result = await runFor({
+    workspace,
+    user: owner,
+    question: "Where are we deploying the backend?",
+  });
+
+  assert.equal(result.answer, "The backend is deployed on Google Cloud Run.");
+});
+
+test("sender-specific frontend question retrieves Vercel evidence", async () => {
+  const asfi = await makeUser("asfi");
+  const ahmed = await makeUser("ahmed");
+  const workspace = await makeWorkspace(asfi, "Frontend deployment");
+  workspace.members.push(ahmed._id);
+  await workspace.save();
+  await makeMessage(
+    workspace,
+    ahmed,
+    "The frontend will be deployed on Vercel."
+  );
+  setWorkspaceAgentProviderOverride(async (request) => {
+    const messages = getObservedMessages(request);
+
+    if (messages.length === 0) {
+      return finalAction("An unsupported early answer.");
+    }
+
+    assert.ok(
+      messages.some(
+        (message) =>
+          message.senderName === ahmed.name &&
+          message.content.includes("Vercel")
+      )
+    );
+    return finalAction("Ahmed said the frontend will be deployed on Vercel.");
+  });
+
+  const result = await runFor({
+    workspace,
+    user: asfi,
+    question: "What did Ahmed say about the frontend?",
+  });
+
+  assert.match(result.answer, /Vercel/);
+});
+
+test("paraphrased deployment question uses bounded recent fallback", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Paraphrase deployment");
+  await makeMessage(
+    workspace,
+    owner,
+    "We decided to deploy the backend on Google Cloud Run."
+  );
+  await makeMessage(
+    workspace,
+    owner,
+    "The frontend will be deployed on Vercel."
+  );
+  setWorkspaceAgentProviderOverride(async (request) => {
+    const messages = getObservedMessages(request);
+
+    if (messages.length === 0) {
+      return finalAction("An unsupported early answer.");
+    }
+
+    return finalAction(
+      "The server uses Google Cloud Run and the web app uses Vercel."
+    );
+  });
+
+  const result = await runFor({
+    workspace,
+    user: owner,
+    question: "Which platforms host our server and web app?",
+  });
+
+  assert.match(result.answer, /Google Cloud Run/);
+  assert.match(result.answer, /Vercel/);
+  assert.deepEqual(
+    result.steps.map((step) => step.tool),
+    ["search_workspace_messages", "get_recent_messages"]
+  );
+});
+
+test("unrelated recent messages do not prevent a budget abstention", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "No budget workspace");
+  await makeMessage(
+    workspace,
+    owner,
+    "We decided to deploy the backend on Google Cloud Run."
+  );
+  await makeMessage(
+    workspace,
+    owner,
+    "The frontend will be deployed on Vercel."
+  );
+  setWorkspaceAgentProviderOverride(async (request) => {
+    const prompt = JSON.parse(request.userPrompt);
+
+    if (prompt.observations.length === 0) {
+      return finalAction("The budget is an unsupported amount.");
+    }
+
+    return finalAction(
+      "I couldn't find that in the available workspace context."
+    );
+  });
+
+  const result = await runFor({
+    workspace,
+    user: owner,
+    question: "What is the budget for this project?",
+  });
+
+  assert.equal(
+    result.answer,
+    "I couldn't find that in the available workspace context."
+  );
+  assert.deepEqual(
+    result.steps.map((step) => step.tool),
+    ["search_workspace_messages", "get_recent_messages"]
+  );
+});
+
 test("agent final response may contain a grounded memory proposal", async () => {
   const owner = await makeUser("owner");
   const workspace = await makeWorkspace(owner, "Proposal workspace");
@@ -466,6 +748,12 @@ test("agent suppresses an equivalent existing memory proposal but keeps its answ
         "  production hosting: railway for backend,   vercel for frontend  ",
       importance: "normal",
     }),
+    finalAction("Production uses Railway and Vercel.", {
+      type: "decision",
+      content:
+        "  production hosting: railway for backend,   vercel for frontend  ",
+      importance: "normal",
+    }),
   ]);
 
   const result = await runFor({
@@ -475,7 +763,11 @@ test("agent suppresses an equivalent existing memory proposal but keeps its answ
   });
 
   assert.equal(result.answer, "Production uses Railway and Vercel.");
-  assert.deepEqual(result.toolsUsed, ["list_workspace_memories"]);
+  assert.deepEqual(result.toolsUsed, [
+    "list_workspace_memories",
+    "search_workspace_messages",
+    "get_recent_messages",
+  ]);
   assert.equal(result.memoryProposal, null);
   assert.equal(
     await WorkspaceMemory.countDocuments({ workspace: workspace._id }),
@@ -639,8 +931,9 @@ test("agent can execute multiple sequential tools before answering", async () =>
   assert.deepEqual(result.toolsUsed, [
     "get_workspace_info",
     "search_workspace_messages",
+    "get_recent_messages",
   ]);
-  assert.equal(result.steps.length, 2);
+  assert.equal(result.steps.length, 3);
   assert.equal(
     result.answer,
     "Sequential workspace deploys using Railway."
@@ -922,13 +1215,22 @@ test("provider timeouts retain the existing safe provider error", async () => {
   );
 });
 
-test("a model cannot return a final answer before any MCP observation", async () => {
+test("a premature model final triggers bounded retrieval and safe abstention", async () => {
   const owner = await makeUser("owner");
   const workspace = await makeWorkspace(owner, "Ungrounded workspace");
-  setProviderSequence([finalAction("An unsupported guess")]);
+  setProviderSequence([
+    finalAction("An unsupported guess"),
+    finalAction("An unsupported guess"),
+  ]);
 
-  await assert.rejects(
-    runFor({ workspace, user: owner }),
-    (error) => error.code === "AGENT_UNGROUNDED_FINAL"
+  const result = await runFor({ workspace, user: owner });
+
+  assert.equal(
+    result.answer,
+    "I couldn't find that in the available workspace context."
+  );
+  assert.deepEqual(
+    result.steps.map((step) => step.tool),
+    ["search_workspace_messages", "get_recent_messages"]
   );
 });

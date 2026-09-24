@@ -356,6 +356,48 @@ test("message search treats regex characters as literal text", async () => {
   );
 });
 
+test("message search tokenizes natural questions and matches inflected terms case-insensitively", async () => {
+  const owner = await makeUser("owner");
+  const workspace = await makeWorkspace(owner, "Lexical workspace");
+  const baseTime = Date.UTC(2026, 0, 2, 13, 0, 0);
+
+  await makeMessage({
+    workspace,
+    sender: owner,
+    content: "We decided to deploy the backend on Google Cloud Run.",
+    createdAt: new Date(baseTime),
+  });
+  await makeMessage({
+    workspace,
+    sender: owner,
+    content: "The frontend will be DEPLOYED on Vercel.",
+    createdAt: new Date(baseTime + 1000),
+  });
+
+  const { client } = await connectWorkspaceClient({
+    workspaceId: workspace._id,
+    userId: owner._id,
+  });
+  const result = await client.callTool({
+    name: "search_workspace_messages",
+    arguments: {
+      query: "What did we decide about deployment?",
+      limit: 10,
+    },
+  });
+
+  assert.equal(result.structuredContent.count, 2);
+  assert.deepEqual(
+    result.structuredContent.messages.map((message) =>
+      message.content
+    ),
+    [
+      "We decided to deploy the backend on Google Cloud Run.",
+      "The frontend will be DEPLOYED on Vercel.",
+    ]
+  );
+});
+
 test("list_workspace_memories returns only bound-workspace memories", async () => {
   const fixture = await seedIsolatedWorkspaces();
   const { client } = await connectWorkspaceClient({
